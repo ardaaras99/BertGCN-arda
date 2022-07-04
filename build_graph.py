@@ -6,6 +6,9 @@ import networkx as nx
 import scipy.sparse as sp
 from utils import loadWord2Vec, clean_str
 from math import log
+import nltk
+import sklearn
+
 from sklearn import svm
 from nltk.corpus import wordnet as wn
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -13,14 +16,14 @@ import sys
 from scipy.spatial.distance import cosine
 
 if len(sys.argv) != 2:
-	sys.exit("Use: python build_graph.py <dataset>")
+    sys.exit("Use: python build_graph.py <dataset>")
 
 datasets = ['20ng', 'R8', 'R52', 'ohsumed', 'mr']
 # build corpus
 dataset = sys.argv[1]
 
 if dataset not in datasets:
-	sys.exit("wrong dataset name")
+    sys.exit("wrong dataset name")
 
 # Read Word Vectors
 # word_vector_file = 'data/glove.6B/glove.6B.300d.txt'

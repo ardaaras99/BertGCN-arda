@@ -1,28 +1,38 @@
+
+
+from model import BertClassifier
+from torch.optim import lr_scheduler
+import logging
+import shutil
+import argparse
+from sklearn.metrics import accuracy_score
+from datetime import datetime
+import numpy as np
+from ignite.metrics import Accuracy, Loss
+from ignite.engine import Events, create_supervised_evaluator, create_supervised_trainer, Engine
+import torch.utils.data as Data
 import torch as th
 from transformers import AutoModel, AutoTokenizer
 import torch.nn.functional as F
 from utils import *
-import dgl
-import torch.utils.data as Data
-from ignite.engine import Events, create_supervised_evaluator, create_supervised_trainer, Engine
-from ignite.metrics import Accuracy, Loss
-import numpy as np
 import os
-from datetime import datetime
-from sklearn.metrics import accuracy_score
-import argparse, shutil, logging
-from torch.optim import lr_scheduler
-from model import BertClassifier
+# os.add_dll_directory(
+#     r'C:\Users\metec\AppData\Local\pypoetry\Cache\virtualenvs\bertgcn-arda-new-PIoXg_iK-py3.9\lib\site-packages\dgl')
+# print(os.getcwd())
+import dgl
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--max_length', type=int, default=128, help='the input length for bert')
+parser.add_argument('--max_length', type=int, default=128,
+                    help='the input length for bert')
 parser.add_argument('--batch_size', type=int, default=128)
 parser.add_argument('--nb_epochs', type=int, default=60)
 parser.add_argument('--bert_lr', type=float, default=1e-4)
-parser.add_argument('--dataset', default='20ng', choices=['20ng', 'R8', 'R52', 'ohsumed', 'mr'])
+parser.add_argument('--dataset', default='20ng',
+                    choices=['20ng', 'R8', 'R52', 'ohsumed', 'mr'])
 parser.add_argument('--bert_init', type=str, default='roberta-base',
                     choices=['roberta-base', 'roberta-large', 'bert-base-uncased', 'bert-large-uncased'])
-parser.add_argument('--checkpoint_dir', default=None, help='checkpoint directory, [bert_init]_[dataset] if not specified')
+parser.add_argument('--checkpoint_dir', default=None,
+                    help='checkpoint directory, [bert_init]_[dataset] if not specified')
 
 args = parser.parse_args()
 
@@ -44,7 +54,8 @@ shutil.copy(os.path.basename(__file__), ckpt_dir)
 sh = logging.StreamHandler(sys.stdout)
 sh.setFormatter(logging.Formatter('%(message)s'))
 sh.setLevel(logging.INFO)
-fh = logging.FileHandler(filename=os.path.join(ckpt_dir, 'training.log'), mode='w')
+fh = logging.FileHandler(filename=os.path.join(
+    ckpt_dir, 'training.log'), mode='w')
 fh.setFormatter(logging.Formatter('%(message)s'))
 fh.setLevel(logging.INFO)
 logger = logging.getLogger('training logger')
@@ -60,7 +71,8 @@ logger.info(str(args))
 logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
 
 # Data Preprocess
-adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(dataset)
+adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
+    dataset)
 '''
 y_train, y_val, y_test: n*c matrices 
 train_mask, val_mask, test_mask: n-d bool array
@@ -77,7 +89,7 @@ nb_class = y_train.shape[1]
 model = BertClassifier(pretrained_model=bert_init, nb_class=nb_class)
 
 # transform one-hot label to class ID for pytorch computation
-y = th.LongTensor((y_train + y_val +y_test).argmax(axis=1))
+y = th.LongTensor((y_train + y_val + y_test).argmax(axis=1))
 label = {}
 label['train'], label['val'], label['test'] = y[:nb_train], y[nb_train:nb_train+nb_val], y[-nb_test:]
 
@@ -85,26 +97,33 @@ label['train'], label['val'], label['test'] = y[:nb_train], y[nb_train:nb_train+
 corpus_file = './data/corpus/'+dataset+'_shuffle.txt'
 with open(corpus_file, 'r') as f:
     text = f.read()
-    text=text.replace('\\', '')
+    text = text.replace('\\', '')
     text = text.split('\n')
 
+
 def encode_input(text, tokenizer):
-    input = tokenizer(text, max_length=max_length, truncation=True, padding=True, return_tensors='pt')
+    input = tokenizer(text, max_length=max_length,
+                      truncation=True, padding=True, return_tensors='pt')
     return input.input_ids, input.attention_mask
+
 
 input_ids, attention_mask = {}, {}
 
 input_ids_, attention_mask_ = encode_input(text, model.tokenizer)
 
 # create train/test/val datasets and dataloaders
-input_ids['train'], input_ids['val'], input_ids['test'] =  input_ids_[:nb_train], input_ids_[nb_train:nb_train+nb_val], input_ids_[-nb_test:]
-attention_mask['train'], attention_mask['val'], attention_mask['test'] =  attention_mask_[:nb_train], attention_mask_[nb_train:nb_train+nb_val], attention_mask_[-nb_test:]
+input_ids['train'], input_ids['val'], input_ids['test'] = input_ids_[
+    :nb_train], input_ids_[nb_train:nb_train+nb_val], input_ids_[-nb_test:]
+attention_mask['train'], attention_mask['val'], attention_mask['test'] = attention_mask_[
+    :nb_train], attention_mask_[nb_train:nb_train+nb_val], attention_mask_[-nb_test:]
 
 datasets = {}
 loader = {}
 for split in ['train', 'val', 'test']:
-    datasets[split] =  Data.TensorDataset(input_ids[split], attention_mask[split], label[split])
-    loader[split] = Data.DataLoader(datasets[split], batch_size=batch_size, shuffle=True)
+    datasets[split] = Data.TensorDataset(
+        input_ids[split], attention_mask[split], label[split])
+    loader[split] = Data.DataLoader(
+        datasets[split], batch_size=batch_size, shuffle=True)
 
 
 # Training
@@ -149,7 +168,7 @@ def test_step(engine, batch):
 
 
 evaluator = Engine(test_step)
-metrics={
+metrics = {
     'acc': Accuracy(),
     'nll': Loss(th.nn.CrossEntropyLoss())
 }
@@ -188,6 +207,6 @@ def log_training_results(trainer):
         log_training_results.best_val_acc = val_acc
     scheduler.step()
 
-        
+
 log_training_results.best_val_acc = 0
 trainer.run(loader['train'], max_epochs=nb_epochs)

@@ -2,7 +2,7 @@ import numpy as np
 import pickle as pkl
 import networkx as nx
 import scipy.sparse as sp
-from scipy.sparse.linalg.eigen.arpack import eigsh
+from scipy.sparse.linalg import eigsh
 import sys
 import re
 
@@ -278,6 +278,7 @@ def loadWord2Vec(filename):
     print('Loaded Word Vectors!')
     file.close()
     return vocab, embd, word_vector_map
+
 
 def clean_str(string):
     """
