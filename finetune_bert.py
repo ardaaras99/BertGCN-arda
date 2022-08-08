@@ -1,5 +1,3 @@
-
-
 from model import BertClassifier
 from torch.optim import lr_scheduler
 import logging
