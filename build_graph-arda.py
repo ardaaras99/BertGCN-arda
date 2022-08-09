@@ -19,7 +19,7 @@ from scipy.spatial.distance import cosine
 # %%
 datasets = ['20ng', 'R8', 'R52', 'ohsumed', 'mr']
 
-dataset = 'mr'
+dataset = '20ng'
 
 word_embeddings_dim = 300
 word_vector_map = {}
@@ -143,7 +143,6 @@ for word, doc_list in word_doc_list.items():
 # build dictionary to assign id numbers to words
 word_id_map = {}
 for i in range(vocab_size):
-    print
     word_id_map[vocab[i]] = i
 
 vocab_str = '\n'.join(vocab)
@@ -260,7 +259,6 @@ for i in range(test_size):
     one_hot[label_index] = 1
     ty.append(one_hot)
 ty = np.array(ty)
-print(ty)
 # %%
 
 # allx: the the feature vectors of both labeled and unlabeled training instances
@@ -273,7 +271,6 @@ word_vectors = np.random.uniform(-0.01, 0.01,
 for i in range(len(vocab)):
     word = vocab[i]
     if word in word_vector_map:
-        print("sa")
         vector = word_vector_map[word]
         word_vectors[i] = vector
 
@@ -287,8 +284,7 @@ for i in range(train_size):
     words = doc_words.split()
     doc_len = len(words)
     for word in words:
-        if word in word_vector_map:
-            print("sa")
+        if word in word_vector_map:  # buraya girmiyor başta
             word_vector = word_vector_map[word]
             doc_vec = doc_vec + np.array(word_vector)
 
@@ -307,7 +303,6 @@ for i in range(vocab_size):
 row_allx = np.array(row_allx)
 col_allx = np.array(col_allx)
 data_allx = np.array(data_allx)
-# %%
 
 allx = sp.csr_matrix(
     (data_allx, (row_allx, col_allx)), shape=(train_size + vocab_size, word_embeddings_dim))
@@ -329,7 +324,7 @@ for i in range(vocab_size):
 ally = np.array(ally)
 
 print(x.shape, y.shape, tx.shape, ty.shape, allx.shape, ally.shape)
-
+# %%
 '''
 Doc word heterogeneous graph
 '''
@@ -349,7 +344,6 @@ for doc_words in shuffle_doc_words_list:
             window = words[j: j + window_size]
             windows.append(window)
             # print(window)
-
 
 word_window_freq = {}
 for window in windows:
@@ -389,7 +383,7 @@ row = []
 col = []
 weight = []
 
-# pmi as weights
+# PMI matrix (word-word graph) found here
 
 num_window = len(windows)
 
@@ -407,6 +401,7 @@ for key in word_pair_count:
     row.append(train_size + i)
     col.append(train_size + j)
     weight.append(pmi)
+# %%
 
 # word vector cosine similarity as weights
 
@@ -489,3 +484,5 @@ f.close()
 f = open("data/ind.{}.adj".format(dataset), 'wb')
 pkl.dump(adj, f)
 f.close()
+
+# %%
