@@ -19,7 +19,7 @@ from scipy.spatial.distance import cosine
 # %%
 datasets = ['20ng', 'R8', 'R52', 'ohsumed', 'mr']
 
-dataset = '20ng'
+dataset = 'mr'
 
 word_embeddings_dim = 300
 word_vector_map = {}
@@ -456,6 +456,12 @@ node_size = train_size + vocab_size + test_size
 adj = sp.csr_matrix(
     (weight, (row, col)), shape=(node_size, node_size))
 
+
+def check_symmetric(a, rtol=1e-05, atol=1e-08):
+    return np.allclose(a, a.T, rtol=rtol, atol=atol)
+
+
+print(check_symmetric(adj.toarray()))
 # dump objects
 f = open("data/ind.{}.x".format(dataset), 'wb')
 pkl.dump(x, f)
