@@ -116,26 +116,23 @@ def load_data(dataset_str):
 
 
 def load_corpus(dataset_str):
-    """
-    Loads input corpus from gcn/data directory
+    '''
+        Loads input corpus from gcn/data directory
 
-    ind.dataset_str.x => the feature vectors of the training docs as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.tx => the feature vectors of the test docs as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.allx => the feature vectors of both labeled and unlabeled training docs/words
-        (a superset of ind.dataset_str.x) as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.y => the one-hot labels of the labeled training docs as numpy.ndarray object;
-    ind.dataset_str.ty => the one-hot labels of the test docs as numpy.ndarray object;
-    ind.dataset_str.ally => the labels for instances in ind.dataset_str.allx as numpy.ndarray object;
-    ind.dataset_str.adj => adjacency matrix of word/doc nodes as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.train.index => the indices of training docs in original doc list.
+        node_size = train_size + test_size + vocab_size
+        input: dataset_str
+        output: adj -> node_size,node_size (symmetric version created here)
+                features -> node_size , word_embed_dim (List of List format sparse)
+                y_train -> node_size , 2 (masked array is used to retrieve train part)
+                y_val -> node_size , 2
+                y_test -> node_size ,2
+                train_mask -> node_size,
+                val_mask -> node_size,
+                test_mask -> node_size,
+    '''
 
-    All objects above must be saved using python pickle module.
-
-    :param dataset_str: Dataset name
-    :return: All data input files loaded (as well the training/test data).
-    """
-
-    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'adj']
+    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally',
+             'adj']
     objects = []
     for i in range(len(names)):
         with open("data/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
@@ -144,12 +141,29 @@ def load_corpus(dataset_str):
             else:
                 objects.append(pkl.load(f))
 
-    x, y, tx, ty, allx, ally, adj = tuple(objects)
+    '''
+        real_train_size = int(0.9 * train_size)
+        x -> real_train_size, word_embed_dim
+        y -> real_train_size, num_class (one-hot vector)
+        tx -> test_size, word_embed_dim
+        ty -> test_size, num_class
+        allx -> train_size + vocab_size , word_embed_dim (including both train and val)
+        ally -> train_size + vocab_size , word_embed_dim
+    '''
+    # use tuple unpacking to list nice implementation
+    x, y, tx, ty, allx, ally, adj = tuple(
+        objects)
     print(x.shape, y.shape, tx.shape, ty.shape, allx.shape, ally.shape)
+
+    '''
+        features -> node_size, word_embed_dim (List of List format sparse)
+        labels -> node_size , num_class
+    '''
 
     features = sp.vstack((allx, tx)).tolil()
     labels = np.vstack((ally, ty))
-    print(len(labels))
+
+    # get train_size,test_size and val_size
 
     train_idx_orig = parse_index_file(
         "data/{}.train.index".format(dataset_str))
@@ -158,6 +172,7 @@ def load_corpus(dataset_str):
     val_size = train_size - x.shape[0]
     test_size = tx.shape[0]
 
+    # define mask arrays for train,test,val
     idx_train = range(len(y))
     idx_val = range(len(y), len(y) + val_size)
     idx_test = range(allx.shape[0], allx.shape[0] + test_size)
@@ -173,6 +188,7 @@ def load_corpus(dataset_str):
     y_val[val_mask, :] = labels[val_mask, :]
     y_test[test_mask, :] = labels[test_mask, :]
 
+    # make adj matrix symmetric
     adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
 
     return adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size

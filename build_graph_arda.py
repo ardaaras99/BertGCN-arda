@@ -1,19 +1,25 @@
 # %%
-import enum
 import random
 from re import S
 import numpy as np
 import pickle as pkl
 import scipy.sparse as sp
-
+import sys
 from math import log
 
+import numpy as np
+import pickle as pkl
+import networkx as nx
+import scipy.sparse as sp
+from scipy.sparse.linalg import eigsh
+import re
+
 '''
-    data/corpus -> directory has raw text of the documents 
+    data/corpus -> directory has raw text of the documents
                     each line is training instance
-    
-    data/       -> directory has txt file that stores each data 
-                    instance id, train or test identification and 
+
+    data/       -> directory has txt file that stores each data
+                    instance id, train or test identification and
                     label
 '''
 
@@ -124,7 +130,7 @@ vocab, vocab_size = list(word_set), len(list(word_set))
 print("Vocab size is: " + str(vocab_size))
 
 '''
-    Build dictionary where keys are unique words and value is the list of 
+    Build dictionary where keys are unique words and value is the list of
     unique documents that this word appears
 '''
 
@@ -198,7 +204,7 @@ f.close()
 '''
     Create input training matrix x -> (real_train_size,word_embeddings_dim)
     Create input label matrix y -> one hot version of labels
-    
+
     Note: Initially it is empty since word_vector_map commented in original code,
           it might be useful for future implementations so we do not change it
 '''
@@ -535,5 +541,137 @@ adj = sp.csr_matrix(
 
 
 # %%
-print(check_symmetric(adj_pmi.toarray()))
-# print(check_symmetric(adj.toarray())) takes long
+# print(check_symmetric(adj_pmi.toarray()))
+
+
+'''
+    After creating sparse matrices, we dump them to pickle objects
+'''
+
+# first open the file with corresponding name
+
+
+def dump_obj(obj, obj_name, dataset):
+    '''
+    Uploads data to gcn/data directory 
+
+    ind.dataset_str.x => the feature vectors of the training docs as scipy.sparse.csr.csr_matrix object;
+    ind.dataset_str.tx => the feature vectors of the test docs as scipy.sparse.csr.csr_matrix object;
+    ind.dataset_str.allx => the feature vectors of both labeled and unlabeled training docs/words
+        (a superset of ind.dataset_str.x) as scipy.sparse.csr.csr_matrix object;
+    ind.dataset_str.y => the one-hot labels of the labeled training docs as numpy.ndarray object;
+    ind.dataset_str.ty => the one-hot labels of the test docs as numpy.ndarray object;
+    ind.dataset_str.ally => the labels for instances in ind.dataset_str.allx as numpy.ndarray object;
+    ind.dataset_str.adj => adjacency matrix of word/doc nodes as scipy.sparse.csr.csr_matrix object;
+    ind.dataset_str.train.index => the indices of training docs in original doc list.
+    '''
+
+    f = open("data/ind.{}.{}".format(dataset, obj_name), 'wb')
+    pkl.dump(obj, f)
+    f.close()
+
+
+objs = [(x, 'x'), (y, 'y'), (tx, 'tx'), (ty, 'ty'), (allx, 'allx'), (ally, 'ally'), (adj, 'adj'),
+        (adj_pmi, 'adj_pmi'), (adj_tfidf_train, 'adj_tfidf_train'), (adj_tfidf_test, 'adj_tfidf_test')]
+
+for obj_tuple in objs:
+    obj, obj_name = obj_tuple
+    dump_obj(obj, obj_name, dataset)
+
+
+### END OF BUILD GRAPH PROCEDURE ###
+# %%
+
+'''
+    Loads input corpus from gcn/data directory
+
+    node_size = train_size + test_size + vocab_size
+    input: dataset_str
+    output: adj -> node_size,node_size (symmetric version created here)
+            features -> node_size , word_embed_dim (List of List format sparse)
+            y_train -> node_size , 2 (masked array is used to retrieve train part)
+            y_val -> node_size , 2
+            y_test -> node_size ,2
+            train_mask -> node_size,
+            val_mask -> node_size,
+            test_mask -> node_size,
+'''
+
+dataset_str = dataset
+
+names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'adj']
+objects = []
+for i in range(len(names)):
+    with open("data/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
+        if sys.version_info > (3, 0):
+            objects.append(pkl.load(f, encoding='latin1'))
+        else:
+            objects.append(pkl.load(f))
+
+'''
+    real_train_size = int(0.9 * train_size)
+    x -> real_train_size, word_embed_dim
+    y -> real_train_size, num_class (one-hot vector)
+    tx -> test_size, word_embed_dim
+    ty -> test_size, num_class
+    allx -> train_size + vocab_size , word_embed_dim (including both train and val)
+    ally -> train_size + vocab_size , word_embed_dim
+'''
+print(x.shape, y.shape, tx.shape, ty.shape, allx.shape, ally.shape)
+# use tuple unpacking to list nice implementation
+x, y, tx, ty, allx, ally, adj = tuple(objects)
+
+
+'''
+    features -> train_size + test_size + vocab_size , word_embed_dim (List of List format sparse)
+    labels -> train_size + test_size + vocab_size , num_class
+'''
+
+features = sp.vstack((allx, tx)).tolil()
+labels = np.vstack((ally, ty))
+
+
+# need train_size origin, since utils do not have it in variables, take it from outside
+def parse_index_file(filename):
+    """Parse index file."""
+    index = []
+    for line in open(filename):
+        index.append(int(line.strip()))
+    return index
+
+
+train_idx_orig = parse_index_file(
+    "data/{}.train.index".format(dataset_str))
+train_size = len(train_idx_orig)
+
+val_size = train_size - x.shape[0]
+test_size = tx.shape[0]
+
+idx_train = range(len(y))
+idx_val = range(len(y), len(y) + val_size)
+idx_test = range(allx.shape[0], allx.shape[0] + test_size)
+
+
+def sample_mask(idx, l):
+    """Create mask."""
+    mask = np.zeros(l)
+    mask[idx] = 1
+    return np.array(mask, dtype=np.bool)
+
+
+train_mask = sample_mask(idx_train, labels.shape[0])
+val_mask = sample_mask(idx_val, labels.shape[0])
+test_mask = sample_mask(idx_test, labels.shape[0])
+
+y_train = np.zeros(labels.shape)
+y_val = np.zeros(labels.shape)
+y_test = np.zeros(labels.shape)
+y_train[train_mask, :] = labels[train_mask, :]
+y_val[val_mask, :] = labels[val_mask, :]
+y_test[test_mask, :] = labels[test_mask, :]
+
+'''
+    to make adjoint symmetric since we fount it was not
+'''
+adj_new = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T >
+                                                           adj)  # third element is already 0 check
