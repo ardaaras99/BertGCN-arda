@@ -135,7 +135,7 @@ def load_corpus(dataset_str):
              'adj']
     objects = []
     for i in range(len(names)):
-        with open("BertGCN-arda/data/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
+        with open("data/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
             if sys.version_info > (3, 0):
                 objects.append(pkl.load(f, encoding='latin1'))
             else:
