@@ -62,13 +62,11 @@ else:
     ckpt_dir = checkpoint_dir
 
 
-'''
-    Handle directory issues, do not exactly know each line
-'''
-
+# Create directory and make copy of original file to that direcyory
 os.makedirs(ckpt_dir, exist_ok=True)
 shutil.copy(os.path.basename(__file__), ckpt_dir)
 
+# I guess this lines helps us to save output as log file
 sh = logging.StreamHandler(sys.stdout)
 sh.setFormatter(logging.Formatter('%(message)s'))
 sh.setLevel(logging.INFO)
