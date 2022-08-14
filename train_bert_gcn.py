@@ -151,7 +151,7 @@ doc_mask = train_mask + val_mask + test_mask
 # adj_new[nb_train + nb_val: -nb_test, nb_train + nb_val: -nb_test] = 0
 # adj_norm = normalize_adj(adj_new + sp.eye(adj_new.shape[0]))
 
-adj_norm = normalize_adj(adj + sp.eye(adj_new.shape[0]))
+adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
 
 # build DGL Graph
 #adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
