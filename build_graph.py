@@ -22,13 +22,16 @@ import re
                     instance id, train or test identification and
                     label
 '''
+if len(sys.argv) != 2:
+    sys.exit("Use: python build_graph.py <dataset>")
 
 datasets = ['20ng', 'R8', 'R52', 'ohsumed', 'mr']
-dataset = 'mr'
+dataset = sys.argv[1]
 
 word_embeddings_dim = 300
 word_vector_map = {}  # this is not used, there is no word vector initialization
-
+if dataset not in datasets:
+    sys.exit("wrong dataset name")
 
 '''
     doc_name_list -> to store id info, which group it belongs and label
@@ -421,7 +424,6 @@ for window in windows:
                 word_pair_count[word_pair_str] = 1
 
 # PMI Matrix, it is symmetric since word_pair_count dict is symmetric
-weight_pmi = []
 
 row, col, weight = [], [], []  # to have them in single graph
 weight_tfidf, weight_pmi = [], []
@@ -444,13 +446,12 @@ for key in word_pair_count:
               (1.0 * word_freq_i * word_freq_j/(num_window * num_window)))
     if pmi <= 0:
         continue
-    weight_pmi.append(pmi)
     # for big Adjacency
     row.append(train_size + i)
     col.append(train_size + j)
     weight.append(pmi)
     weight_pmi.append(pmi)
-    weight_tfidf.append(0)
+    weight_tfidf.append(1e-8)
 
 # TF-IDF matrix
 doc_word_freq = {}
@@ -495,7 +496,7 @@ for i, doc_words in enumerate(shuffle_doc_words_list):
 
         weight.append(freq * idf)
         weight_tfidf.append(freq*idf)
-        weight_pmi.append(0)
+        weight_pmi.append(1e-8)
         doc_word_set.add(word)
 
 node_size = train_size + vocab_size + test_size
@@ -552,3 +553,5 @@ for obj_tuple in objs:
     dump_obj(obj, obj_name, dataset)
 
 ### END OF BUILD GRAPH PROCEDURE ###
+
+# %%
