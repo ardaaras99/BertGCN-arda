@@ -42,6 +42,12 @@ parser.add_argument('--dropout', type=float, default=0.5)
 parser.add_argument('--gcn_lr', type=float, default=1e-3)
 parser.add_argument('--bert_lr', type=float, default=1e-5)
 
+'''
+    Functionality to choose among any graph
+'''
+parser.add_argument('--graph_type', default='normal',
+                    choices=['normal', 'pmi', 'tfidf'])
+
 args = parser.parse_args()
 max_length = args.max_length
 batch_size = args.batch_size
@@ -58,6 +64,7 @@ heads = args.heads
 dropout = args.dropout
 gcn_lr = args.gcn_lr
 bert_lr = args.bert_lr
+graph_type = args.graph_type
 
 if checkpoint_dir is None:
     ckpt_dir = './checkpoint/{}_{}_{}'.format(bert_init, gcn_model, dataset)
@@ -88,7 +95,7 @@ logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
 
 
 # Data Preprocess
-adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
+adj, adj_pmi, adj_tfidf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
     dataset)
 '''
 adj: n*n sparse adjacency matrix
@@ -147,11 +154,12 @@ y = y.argmax(axis=1)
 doc_mask = train_mask + val_mask + test_mask
 
 
-# adj_new = adj.copy()
-# adj_new[nb_train + nb_val: -nb_test, nb_train + nb_val: -nb_test] = 0
-# adj_norm = normalize_adj(adj_new + sp.eye(adj_new.shape[0]))
-
-adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
+if graph_type == 'normal':
+    adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
+elif graph_type == 'pmi':
+    adj_norm = normalize_adj(adj_pmi + sp.eye(adj_pmi.shape[0]))
+elif graph_type == 'tfidf':
+    adj_norm = normalize_adj(adj_tfidf + sp.eye(adj_tfidf.shape[0]))
 
 # build DGL Graph
 #adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))

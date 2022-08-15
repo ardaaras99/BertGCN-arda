@@ -132,7 +132,7 @@ def load_corpus(dataset_str):
     '''
 
     names = ['x', 'y', 'tx', 'ty', 'allx', 'ally',
-             'adj']
+             'adj', 'adj_pmi', 'adj_tfidf']
     objects = []
     for i in range(len(names)):
         with open("data/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
@@ -151,10 +151,8 @@ def load_corpus(dataset_str):
         ally -> train_size + vocab_size , word_embed_dim
     '''
     # use tuple unpacking to list nice implementation
-    x, y, tx, ty, allx, ally, adj = tuple(
+    x, y, tx, ty, allx, ally, adj, adj_pmi, adj_tfidf = tuple(
         objects)
-    print(x.shape, y.shape, tx.shape, ty.shape, allx.shape, ally.shape)
-
     '''
         features -> node_size, word_embed_dim (List of List format sparse)
         labels -> node_size , num_class
@@ -189,9 +187,15 @@ def load_corpus(dataset_str):
     y_test[test_mask, :] = labels[test_mask, :]
 
     # make adj matrix symmetric
-    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
+    adj = make_sym(adj)
+    adj_pmi = make_sym(adj_pmi)
+    adj_tfidf = make_sym(adj_tfidf)
 
-    return adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size
+    return adj, adj_pmi, adj_tfidf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size
+
+
+def make_sym(adj):
+    return adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
 
 
 def sparse_to_tuple(sparse_mx):

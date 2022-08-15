@@ -88,7 +88,7 @@ logger.info('arguments:')
 logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
 # %%
 # Data Preprocess
-adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
+adj, adj2, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
     dataset)
 '''
 adj: n*n sparse adjacency matrix
@@ -142,6 +142,7 @@ input_ids = th.cat([input_ids[:-nb_test], th.zeros((nb_word,
 attention_mask = th.cat([attention_mask[:-nb_test], th.zeros(
     (nb_word, max_length), dtype=th.long), attention_mask[-nb_test:]])
 
+
 # transform one-hot label to class ID for pytorch computation
 y = y_train + y_test + y_val
 y_train = y_train.argmax(axis=1)
@@ -154,34 +155,22 @@ adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
 input_ids = th.cat([input_ids[:-nb_test], input_ids[-nb_test:]])
 attention_mask = th.cat([attention_mask[:-nb_test], attention_mask[-nb_test:]])
 # %%
-
 '''
-    Implementation trial for only TFIDF matrix
+    Trial section
 '''
+adj, adj2, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
+    dataset)
 
-# train_mask_new = np.zeros(nb_train+nb_val+nb_test) < 0
-# train_mask_new[:nb_train] = train_mask[:nb_train]
-# val_mask_new = np.zeros(nb_train+nb_val+nb_test) < 0
-# val_mask_new[nb_train:nb_train+nb_val] = val_mask[nb_train:nb_train+nb_val]
-# test_mask_new = np.zeros(nb_train+nb_val+nb_test) < 0
-# test_mask_new[-nb_test:] = test_mask[-nb_test:]
+adj_norm = normalize_adj(adj2 + sp.eye(adj2.shape[0]))
 
-# #define new adjoint matrix
-# adj_tfidf = vstack((adj_tfidf_train, adj_tfidf_test))
+g = dgl.from_scipy(adj_norm.astype('float32'), eweight_name='edge_weight')
+g.ndata['input_ids'], g.ndata['attention_mask'] = input_ids, attention_mask
+g.ndata['label'], g.ndata['train'], g.ndata['val'], g.ndata['test'] = \
+    th.LongTensor(y), th.FloatTensor(train_mask), th.FloatTensor(
+        val_mask), th.FloatTensor(test_mask)
+g.ndata['label_train'] = th.LongTensor(y_train)
+g.ndata['cls_feats'] = th.zeros((nb_node, model.feat_dim))
 
-# y_new = np.concatenate((y[:nb_train+nb_val], y[-nb_test:]))
-# input_ids_new = th.cat((input_ids[:nb_train+nb_val], input_ids[-nb_test:]))
-# attention_mask_new = th.cat(
-#     (attention_mask[:nb_train+nb_val], attention_mask[-nb_test:]))
-
-'''
-    dgl.from_scipy asks for N,N square matrices, where N is the number of nodes, for doc-word matrix
-
-    we can zero out the pmi section
-'''
-adj_new = adj.copy()
-adj_new[nb_train + nb_val: -nb_test, nb_train + nb_val: -nb_test] = 0
-adj_norm = normalize_adj(adj_new + sp.eye(adj_new.shape[0]))
 # %%
 # build DGL Graph
 g = dgl.from_scipy(adj_norm.astype('float32'), eweight_name='edge_weight')
