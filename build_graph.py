@@ -424,7 +424,7 @@ for window in windows:
 weight_pmi = []
 
 row, col, weight = [], [], []  # to have them in single graph
-weight_tfidf, weight_pmi = []
+weight_tfidf, weight_pmi = [], []
 '''
     We calculate PMI score with word_pair_count & word_window_freq
     note that adjacency matrix has documents first then words, so in original
