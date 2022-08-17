@@ -153,10 +153,10 @@ y = y.argmax(axis=1)
 # document mask used for update feature
 doc_mask = train_mask + val_mask + test_mask
 
-
 if graph_type == 'normal':
     adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
 elif graph_type == 'pmi':
+    print('valla girdim')
     adj_norm = normalize_adj(adj_pmi + sp.eye(adj_pmi.shape[0]))
 elif graph_type == 'tfidf':
     adj_norm = normalize_adj(adj_tfidf + sp.eye(adj_tfidf.shape[0]))
@@ -293,7 +293,7 @@ def log_training_results(trainer):
     test_acc, test_nll = metrics["acc"], metrics["nll"]
     logger.info(
         "Epoch: {}  Train acc: {:.4f} loss: {:.4f}  Val acc: {:.4f} loss: {:.4f}  Test acc: {:.4f} loss: {:.4f}"
-        .format(trainer.state.epoch, train_acc, train_nll, val_acc, val_nll, test_acc, test_nll)
+        .format(trainer.state.epoch, train_acc*100, train_nll, val_acc*100, val_nll, test_acc*100, test_nll)
     )
     if val_acc > log_training_results.best_val_acc:
         logger.info("New checkpoint")

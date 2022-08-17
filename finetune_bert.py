@@ -188,7 +188,7 @@ def log_training_results(trainer):
     test_acc, test_nll = metrics["acc"], metrics["nll"]
     logger.info(
         "\rEpoch: {}  Train acc: {:.4f} loss: {:.4f}  Val acc: {:.4f} loss: {:.4f}  Test acc: {:.4f} loss: {:.4f}"
-        .format(trainer.state.epoch, train_acc, train_nll, val_acc, val_nll, test_acc, test_nll)
+        .format(trainer.state.epoch, train_acc*100, train_nll, val_acc*100, val_nll, test_acc*100, test_nll)
     )
     if val_acc > log_training_results.best_val_acc:
         logger.info("New checkpoint")

@@ -41,6 +41,7 @@ class BertGCN(th.nn.Module):
     def forward(self, g, idx):
         input_ids, attention_mask = g.ndata['input_ids'][idx], g.ndata['attention_mask'][idx]
         if self.training:
+            # cls_feats -> train_size,768
             cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]
             g.ndata['cls_feats'][idx] = cls_feats
         else:

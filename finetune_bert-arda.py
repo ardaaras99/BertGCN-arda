@@ -1,6 +1,6 @@
 # %%
-from transformers import AutoTokenizer
-from model import BertClassifier
+from transformers import AutoModel, AutoTokenizer
+from model import BertClassifier  # bu olay nedir ya
 from torch.optim import lr_scheduler
 import logging
 import shutil
@@ -45,7 +45,7 @@ import os
 # checkpoint_dir = args.checkpoint_dir
 
 
-max_length = 128
+max_length = 16
 batch_size = 4
 nb_epochs = 5
 bert_lr = 1e-4
@@ -95,7 +95,7 @@ gpu = th.device('cuda:0')
 '''
     Data Preprocess 
 '''
-adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
+adj, adj_pmi, adj_tfidf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
     dataset)
 
 # Get train,test,val sizes
@@ -153,8 +153,13 @@ for split in ['train', 'val', 'test']:
         datasets[split], batch_size=batch_size, shuffle=True)
 
 # %%
+'''
+    Trial place
+'''
+bert_model = AutoModel.from_pretrained(bert_init)
 feat_dim = list(model.modules())[-3].out_features
-cls_feats = model(input_ids['train'], attention_mask['train'])[0][:, 0]
+cls_feats = bert_model(input_ids['train'][:10],
+                       attention_mask['train'][:10])[0][:, 0]
 
 # %%
 # Training
