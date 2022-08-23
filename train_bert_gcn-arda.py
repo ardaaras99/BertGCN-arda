@@ -158,18 +158,18 @@ attention_mask = th.cat([attention_mask[:-nb_test], attention_mask[-nb_test:]])
 '''
     Trial section
 '''
-adj, adj2, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
-    dataset)
+# adj, adj2, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
+#     dataset)
 
-adj_norm = normalize_adj(adj2 + sp.eye(adj2.shape[0]))
+# adj_norm = normalize_adj(adj2 + sp.eye(adj2.shape[0]))
 
-g = dgl.from_scipy(adj_norm.astype('float32'), eweight_name='edge_weight')
-g.ndata['input_ids'], g.ndata['attention_mask'] = input_ids, attention_mask
-g.ndata['label'], g.ndata['train'], g.ndata['val'], g.ndata['test'] = \
-    th.LongTensor(y), th.FloatTensor(train_mask), th.FloatTensor(
-        val_mask), th.FloatTensor(test_mask)
-g.ndata['label_train'] = th.LongTensor(y_train)
-g.ndata['cls_feats'] = th.zeros((nb_node, model.feat_dim))
+# g = dgl.from_scipy(adj_norm.astype('float32'), eweight_name='edge_weight')
+# g.ndata['input_ids'], g.ndata['attention_mask'] = input_ids, attention_mask
+# g.ndata['label'], g.ndata['train'], g.ndata['val'], g.ndata['test'] = \
+#     th.LongTensor(y), th.FloatTensor(train_mask), th.FloatTensor(
+#         val_mask), th.FloatTensor(test_mask)
+# g.ndata['label_train'] = th.LongTensor(y_train)
+# g.ndata['cls_feats'] = th.zeros((nb_node, model.feat_dim))
 
 # %%
 # build DGL Graph

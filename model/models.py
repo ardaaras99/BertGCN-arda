@@ -40,8 +40,8 @@ class BertGCN(th.nn.Module):
         )
 
     def forward(self, g, idx):
-        print('idx is: ')
-        print(idx)s
+        print('idx is değişti: ')
+        print(idx)
         input_ids, attention_mask = g.ndata['input_ids'][idx], g.ndata['attention_mask'][idx]
         if self.training:
             # cls_feats -> train_size,768
