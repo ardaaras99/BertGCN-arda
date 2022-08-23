@@ -28,6 +28,7 @@ class BertGCN(th.nn.Module):
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
         self.bert_model = AutoModel.from_pretrained(pretrained_model)
         self.feat_dim = list(self.bert_model.modules())[-2].out_features
+        print("Feat_dim inside of BertGCN is: " + str(self.feat_dim))
         self.classifier = th.nn.Linear(self.feat_dim, nb_class)
         self.gcn = GCN(
             in_feats=self.feat_dim,
@@ -39,9 +40,13 @@ class BertGCN(th.nn.Module):
         )
 
     def forward(self, g, idx):
+        print('idx is: ')
+        print('idx')
         input_ids, attention_mask = g.ndata['input_ids'][idx], g.ndata['attention_mask'][idx]
         if self.training:
             # cls_feats -> train_size,768
+            # idx is for document indices to update
+
             cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]
             g.ndata['cls_feats'][idx] = cls_feats
         else:
