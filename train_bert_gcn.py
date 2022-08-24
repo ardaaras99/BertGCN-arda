@@ -64,6 +64,8 @@ heads = args.heads
 dropout = args.dropout
 gcn_lr = args.gcn_lr
 bert_lr = args.bert_lr
+
+# added newly
 graph_type = args.graph_type
 
 if checkpoint_dir is None:
@@ -91,8 +93,6 @@ gpu = th.device('cuda:0')
 logger.info('arguments:')
 logger.info(str(args))
 logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
-# Model
-
 
 # Data Preprocess
 adj, adj_pmi, adj_tfidf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
@@ -161,8 +161,8 @@ elif graph_type == 'pmi':
 elif graph_type == 'tfidf':
     adj_norm = normalize_adj(adj_tfidf + sp.eye(adj_tfidf.shape[0]))
 
+# %%
 # build DGL Graph
-#adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
 g = dgl.from_scipy(adj_norm.astype('float32'), eweight_name='edge_weight')
 g.ndata['input_ids'], g.ndata['attention_mask'] = input_ids, attention_mask
 g.ndata['label'], g.ndata['train'], g.ndata['val'], g.ndata['test'] = \

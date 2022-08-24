@@ -2,6 +2,7 @@
 import torch as th
 from transformers import AutoModel, AutoTokenizer
 import torch.nn.functional as F
+from model.models import BertGCN_sparse
 from utils import *
 import dgl
 import torch.utils.data as Data
@@ -19,37 +20,12 @@ from torch.optim import lr_scheduler
 from model import BertGCN, BertGAT
 from scipy.sparse import vstack, hstack
 # %%
-# parser = argparse.ArgumentParser()
-# parser.add_argument('--max_length', type=int, default=128,
-#                     help='the input length for bert')
-# parser.add_argument('--batch_size', type=int, default=64)
-# parser.add_argument('-m', '--m', type=float, default=0.7,
-#                     help='the factor balancing BERT and GCN prediction')
-# parser.add_argument('--nb_epochs', type=int, default=50)
-# parser.add_argument('--bert_init', type=str, default='roberta-base',
-#                     choices=['roberta-base', 'roberta-large', 'bert-base-uncased', 'bert-large-uncased'])
-# parser.add_argument('--pretrained_bert_ckpt', default=None)
-# parser.add_argument('--dataset', default='20ng',
-#                     choices=['20ng', 'R8', 'R52', 'ohsumed', 'mr'])
-# parser.add_argument('--checkpoint_dir', default=None,
-#                     help='checkpoint directory, [bert_init]_[gcn_model]_[dataset] if not specified')
-# parser.add_argument('--gcn_model', type=str,
-#                     default='gcn', choices=['gcn', 'gat'])
-# parser.add_argument('--gcn_layers', type=int, default=2)
-# parser.add_argument('--n_hidden', type=int, default=200,
-#                     help='the dimension of gcn hidden layer, the dimension for gat is n_hidden * heads')
-# parser.add_argument('--heads', type=int, default=8,
-#                     help='the number of attentionn heads for gat')
-# parser.add_argument('--dropout', type=float, default=0.5)
-# parser.add_argument('--gcn_lr', type=float, default=1e-3)
-# parser.add_argument('--bert_lr', type=float, default=1e-5)
-
-# args = parser.parse_args()
+# Model specification initializations
 max_length = 128
 batch_size = 256
 m = 0.7
 nb_epochs = 50
-bert_init = 'roberta-base'
+bert_init = 'klue/roberta-small'
 pretrained_bert_ckpt = None
 dataset = 'mr'
 checkpoint_dir = None
@@ -60,6 +36,11 @@ heads = 8
 dropout = 0.5
 gcn_lr = 1e-3
 bert_lr = 1e-5
+'''
+    newly added features
+'''
+use_dgl = True  # to use default implementation with dgl or not
+graph_type = 'normal'  # choose among ['normal', 'tfidf', 'pmi']
 
 if checkpoint_dir is None:
     ckpt_dir = './checkpoint/{}_{}_{}'.format(bert_init, gcn_model, dataset)
@@ -106,6 +87,9 @@ nb_class = y_train.shape[1]
 if gcn_model == 'gcn':
     model = BertGCN(nb_class=nb_class, pretrained_model=bert_init, m=m, gcn_layers=gcn_layers,
                     n_hidden=n_hidden, dropout=dropout)
+elif gcn_model == 'gcn_sparse':
+    model = BertGCN_sparse(size_in=768, nb_class=nb_class, pretrained_model=bert_init, m=m, gcn_layers=gcn_layers,
+                           n_hidden=n_hidden, dropout=dropout)
 else:
     model = BertGAT(nb_class=nb_class, pretrained_model=bert_init, m=m, gcn_layers=gcn_layers,
                     heads=heads, n_hidden=n_hidden, dropout=dropout)
@@ -151,38 +135,39 @@ y = y.argmax(axis=1)
 # document mask used for update feature
 doc_mask = train_mask + val_mask + test_mask
 
-adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
-input_ids = th.cat([input_ids[:-nb_test], input_ids[-nb_test:]])
-attention_mask = th.cat([attention_mask[:-nb_test], attention_mask[-nb_test:]])
 # %%
 '''
-    Trial section
+    If use_dgl is True, we will follow to default implementation, else we will use 
+    newly sparse matrix implementation from Arda
 '''
-# adj, adj2, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
-#     dataset)
 
-# adj_norm = normalize_adj(adj2 + sp.eye(adj2.shape[0]))
+if use_dgl is None:
+    use_dgl = True
 
-# g = dgl.from_scipy(adj_norm.astype('float32'), eweight_name='edge_weight')
-# g.ndata['input_ids'], g.ndata['attention_mask'] = input_ids, attention_mask
-# g.ndata['label'], g.ndata['train'], g.ndata['val'], g.ndata['test'] = \
-#     th.LongTensor(y), th.FloatTensor(train_mask), th.FloatTensor(
-#         val_mask), th.FloatTensor(test_mask)
-# g.ndata['label_train'] = th.LongTensor(y_train)
-# g.ndata['cls_feats'] = th.zeros((nb_node, model.feat_dim))
-
-# %%
 # build DGL Graph
-g = dgl.from_scipy(adj_norm.astype('float32'), eweight_name='edge_weight')
-g.ndata['input_ids'], g.ndata['attention_mask'] = input_ids, attention_mask
-g.ndata['label'], g.ndata['train'], g.ndata['val'], g.ndata['test'] = \
-    th.LongTensor(y), th.FloatTensor(train_mask), th.FloatTensor(
-        val_mask), th.FloatTensor(test_mask)
-g.ndata['label_train'] = th.LongTensor(y_train)
-g.ndata['cls_feats'] = th.zeros((nb_node, model.feat_dim))
+if use_dgl:
+    if graph_type is None:
+        graph_type = 'normal'
 
-logger.info('graph information:')
-logger.info(str(g))
+    if graph_type == 'normal':
+        adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
+    elif graph_type == 'pmi':
+        print('valla girdim')
+        adj_norm = normalize_adj(adj_pmi + sp.eye(adj_pmi.shape[0]))
+    elif graph_type == 'tfidf':
+        adj_norm = normalize_adj(adj_tfidf + sp.eye(adj_tfidf.shape[0]))
+    g = dgl.from_scipy(adj_norm.astype('float32'), eweight_name='edge_weight')
+    g.ndata['input_ids'], g.ndata['attention_mask'] = input_ids, attention_mask
+    g.ndata['label'], g.ndata['train'], g.ndata['val'], g.ndata['test'] = \
+        th.LongTensor(y), th.FloatTensor(train_mask), th.FloatTensor(
+            val_mask), th.FloatTensor(test_mask)
+    g.ndata['label_train'] = th.LongTensor(y_train)
+    g.ndata['cls_feats'] = th.zeros((nb_node, model.feat_dim))
+
+    logger.info('graph information:')
+    logger.info(str(g))
+else:
+    pass
 # %%
 
 # create index loader
@@ -199,7 +184,8 @@ idx_loader_val = Data.DataLoader(val_idx, batch_size=batch_size)
 idx_loader_test = Data.DataLoader(test_idx, batch_size=batch_size)
 idx_loader = Data.DataLoader(doc_idx, batch_size=batch_size, shuffle=True)
 
-# Training
+# %%
+# Training Engine
 
 
 def update_feature():
@@ -240,6 +226,8 @@ def train_step(engine, batch):
     model = model.to(gpu)
     g = g.to(gpu)
     optimizer.zero_grad()
+    print('batch is:')
+    print(batch)
     (idx, ) = [x.to(gpu) for x in batch]
     optimizer.zero_grad()
     train_mask = g.ndata['train'][idx].type(th.BoolTensor)

@@ -20,6 +20,40 @@ class BertClassifier(th.nn.Module):
         return cls_logit
 
 
+class BertGCN_sparse(th.nn.Module):
+    def __init__(self, size_in, pretrained_model='roberta_base', nb_class=20, m=0.7, gcn_layers=2, n_hidden=200, dropout=0.5):
+        super(BertGCN_sparse, self).__init__()
+        self.m = m
+        self.nb_class = nb_class
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
+        self.bert_model = AutoModel.from_pretrained(pretrained_model)
+        self.feat_dim = list(self.bert_model.modules())[-2].out_features
+        print("Feat_dim inside of BertGCN is: " + str(self.feat_dim))
+        self.classifier = th.nn.Linear(self.feat_dim, nb_class)
+        # new ones
+        self.W = th.nn.parameter.Parameter(th.Tensor(size_in, n_hidden))
+        self.b = th.nn.parameter.Parameter(th.Tensor(n_hidden))
+        # Initialize weights
+        variance = 2 / (size_in + n_hidden)
+        self.W.data.normal_(0.0, variance)
+        self.b.data.normal_(0.0, variance)
+
+    def forward(self, g, idx, A):
+        print('idx is değişti: ')
+        print(idx)
+        input_ids, attention_mask = g.ndata['input_ids'][idx], g.ndata['attention_mask'][idx]
+        if self.training:
+            X = self.bert_model(input_ids, attention_mask)[0][:, 0]
+            cls_feats = X[idx]
+            cls_logit = self.classifier(cls_feats)
+            cls_pred = th.nn.Softmax(dim=1)(cls_logit)
+            gcn_logit = th.mm(th.mm(A, X), self.W) + self.b
+            gcn_pred = th.nn.Softmax(dim=1)(gcn_logit)
+            pred = (gcn_pred+1e-10) * self.m + cls_pred * (1 - self.m)
+            pred = th.log(pred)
+            return pred
+
+
 class BertGCN(th.nn.Module):
     def __init__(self, pretrained_model='roberta_base', nb_class=20, m=0.7, gcn_layers=2, n_hidden=200, dropout=0.5):
         super(BertGCN, self).__init__()
