@@ -21,18 +21,18 @@ from model import BertGCN, BertGAT
 from scipy.sparse import vstack, hstack
 # %%
 # Model specification initializations
-max_length = 128
+max_length = 10
 batch_size = 256
 m = 0.7
 nb_epochs = 50
-bert_init = 'klue/roberta-small'
+bert_init = 'roberta-base'
 pretrained_bert_ckpt = None
 dataset = 'mr'
 checkpoint_dir = None
 gcn_model = 'gcn'
 gcn_layers = 2
 n_hidden = 200
-heads = 8
+heads = 1
 dropout = 0.5
 gcn_lr = 1e-3
 bert_lr = 1e-5
@@ -90,7 +90,7 @@ if gcn_model == 'gcn':
 elif gcn_model == 'gcn_sparse':
     model = BertGCN_sparse(size_in=768, nb_class=nb_class, pretrained_model=bert_init, m=m, gcn_layers=gcn_layers,
                            n_hidden=n_hidden, dropout=dropout)
-else:
+elif gcn_model == 'gcn_gat':
     model = BertGAT(nb_class=nb_class, pretrained_model=bert_init, m=m, gcn_layers=gcn_layers,
                     heads=heads, n_hidden=n_hidden, dropout=dropout)
 
@@ -185,7 +185,11 @@ idx_loader_test = Data.DataLoader(test_idx, batch_size=batch_size)
 idx_loader = Data.DataLoader(doc_idx, batch_size=batch_size, shuffle=True)
 
 # %%
+
+# %%
 # Training Engine
+
+A = adj_pmi[train_size: train_size + nb_word, train_size: train_size + nb_word]
 
 
 def update_feature():
@@ -211,12 +215,26 @@ def update_feature():
     return g
 
 
-optimizer = th.optim.Adam([
-    {'params': model.bert_model.parameters(), 'lr': bert_lr},
-    {'params': model.classifier.parameters(), 'lr': bert_lr},
-    {'params': model.gcn.parameters(), 'lr': gcn_lr},
-], lr=1e-3
-)
+if gcn_model == 'gcn' or gcn_model == 'gcn_gat':
+
+    optimizer = th.optim.Adam([
+        {'params': model.bert_model.parameters(), 'lr': bert_lr},
+        {'params': model.classifier.parameters(), 'lr': bert_lr},
+        {'params': model.gcn.parameters(), 'lr': gcn_lr},
+    ], lr=1e-3
+    )
+
+elif gcn_model == 'gcn_sparse':
+    optimizer = th.optim.Adam([
+        {'params': model.bert_model.parameters(), 'lr': bert_lr},
+        {'params': model.classifier.parameters(), 'lr': bert_lr},
+        {'params': model.W, 'lr': gcn_lr},
+        {'params': model.b, 'lr': gcn_lr},
+    ], lr=1e-3
+    )
+else:
+    pass
+
 scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
 
 
@@ -226,13 +244,13 @@ def train_step(engine, batch):
     model = model.to(gpu)
     g = g.to(gpu)
     optimizer.zero_grad()
-    print('batch is:')
-    print(batch)
     (idx, ) = [x.to(gpu) for x in batch]
     optimizer.zero_grad()
     train_mask = g.ndata['train'][idx].type(th.BoolTensor)
     y_pred = model(g, idx)[train_mask]
+    print(y_pred.shape)
     y_true = g.ndata['label_train'][idx][train_mask]
+    print(y_true.shape)
     loss = F.nll_loss(y_pred, y_true)
     loss.backward()
     optimizer.step()

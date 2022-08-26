@@ -5,6 +5,8 @@ import scipy.sparse as sp
 from scipy.sparse.linalg import eigsh
 import sys
 import re
+import torch as th
+from sklearn.metrics import accuracy_score, f1_score
 
 
 def parse_index_file(filename):
@@ -132,7 +134,7 @@ def load_corpus(dataset_str):
     '''
 
     names = ['x', 'y', 'tx', 'ty', 'allx', 'ally',
-             'adj', 'adj_pmi', 'adj_tfidf']
+             'adj', 'adj_pmi', 'adj_tfidf', 'adj_nf']
     objects = []
     for i in range(len(names)):
         with open("data/ind.{}.{}".format(dataset_str, names[i]), 'rb') as f:
@@ -151,7 +153,7 @@ def load_corpus(dataset_str):
         ally -> train_size + vocab_size , word_embed_dim
     '''
     # use tuple unpacking to list nice implementation
-    x, y, tx, ty, allx, ally, adj, adj_pmi, adj_tfidf = tuple(
+    x, y, tx, ty, allx, ally, adj, adj_pmi, adj_tfidf, adj_nf = tuple(
         objects)
     '''
         features -> node_size, word_embed_dim (List of List format sparse)
@@ -191,7 +193,7 @@ def load_corpus(dataset_str):
     adj_pmi = make_sym(adj_pmi)
     adj_tfidf = make_sym(adj_tfidf)
 
-    return adj, adj_pmi, adj_tfidf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size
+    return adj, adj_pmi, adj_tfidf, adj_nf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size
 
 
 def make_sym(adj):
@@ -319,3 +321,96 @@ def clean_str(string):
     string = re.sub(r"\?", " \? ", string)
     string = re.sub(r"\s{2,}", " ", string)
     return string.strip().lower()
+
+
+'''
+    new utils functions added by Arda Can Aras
+'''
+
+
+def to_torch_sparse_tensor(M):
+    M = M.tocoo().astype(np.float32)
+    indices = th.from_numpy(np.vstack((M.row, M.col))).long()
+    values = th.from_numpy(M.data)
+    shape = th.Size(M.shape)
+    T = th.sparse.FloatTensor(indices, values, shape)
+    return T
+
+
+def accuracy(output, labels):
+    preds = output.max(1)[1].type_as(labels)
+    correct = preds.eq(labels).double()
+    correct = correct.sum()
+    return correct / len(labels)
+
+
+def get_bert_output(dataloader, model, gpu):
+    with th.no_grad():
+        model = model.to(gpu)
+        model.eval()
+        cls_list = []
+        for i, batch in enumerate(dataloader):
+            input_ids, attention_mask = [x.to(gpu) for x in batch]
+            output = model.bert_model(
+                input_ids=input_ids, attention_mask=attention_mask)[0][:, 0]
+            cls_list.append(output.cpu())
+        cls_feat = th.cat(cls_list, axis=0)
+    return cls_feat
+
+
+def encode_onehot(labels):
+    classes = set(labels)
+    classes_dict = {c: np.identity(len(classes))[i, :] for i, c in
+                    enumerate(classes)}
+    labels_onehot = np.array(list(map(classes_dict.get, labels)),
+                             dtype=np.int32)
+    return labels_onehot
+
+
+def normalize_sparse_graph(graph, gamma, beta):
+    """
+     Utility function for normalizing sparse graphs.
+     return Dr^gamma x graph x Dc^beta
+     """
+    b_graph = graph.tocsr().copy()
+    r_graph = b_graph.copy()
+    c_graph = b_graph.copy()
+    row_sums = []
+    for i in range(graph.shape[0]):
+        row_sum = r_graph.data[r_graph.indptr[i]:r_graph.indptr[i+1]].sum()
+        if row_sum == 0:
+            row_sums.append(0.0)
+        else:
+            row_sums.append(row_sum**gamma)
+
+    c_graph = c_graph.tocsc()
+    col_sums = []
+    for i in range(graph.shape[1]):
+        col_sum = c_graph.data[c_graph.indptr[i]:c_graph.indptr[i+1]].sum()
+
+        if col_sum == 0:
+            col_sums.append(0.0)
+        else:
+            col_sums.append(col_sum**beta)
+
+    for i in range(graph.shape[0]):
+        if row_sums[i] != 0:
+            b_graph.data[r_graph.indptr[i]:r_graph.indptr[i+1]] *= row_sums[i]
+
+    b_graph = b_graph.tocsc()
+    for i in range(graph.shape[1]):
+        if col_sums[i] != 0:
+            b_graph.data[c_graph.indptr[i]:c_graph.indptr[i+1]] *= col_sums[i]
+    return b_graph
+
+
+def get_metrics(output, labels, ID=''):
+    preds = output.max(1)[1].type_as(labels)
+    preds = preds.cpu().numpy()
+    labels = labels.cpu().numpy()
+    """Utility function to compute Accuracy, MicroF1 and Macro F1"""
+    accuracy = accuracy_score(preds, labels)
+    micro = f1_score(preds, labels, average='micro')
+    macro = f1_score(preds, labels, average='macro')
+
+    return accuracy, macro, micro

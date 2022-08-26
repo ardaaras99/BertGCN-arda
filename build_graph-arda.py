@@ -430,6 +430,8 @@ for window in windows:
 
 row, col, weight = [], [], []  # to have them in single graph
 weight_tfidf, weight_pmi = [], []
+
+row_nf, col_nf, weight_nf = [], [], []
 '''
     We calculate PMI score with word_pair_count & word_window_freq
     note that adjacency matrix has documents first then words, so in original
@@ -494,11 +496,16 @@ for i, doc_words in enumerate(shuffle_doc_words_list):
             k = k + 1
 
         col.append(train_size + j)
+
+        row_nf.append(i)
+        col_nf.append(j)
         idf = log(1.0 * len(shuffle_doc_words_list) /
                   word_doc_freq[vocab[j]])
 
         weight.append(freq * idf)
         weight_tfidf.append(freq*idf)
+        weight_nf.append(freq*idf)
+
         weight_pmi.append(1e-8)
         doc_word_set.add(word)
 
@@ -522,7 +529,8 @@ adj_pmi = sp.csr_matrix(
 adj_tfidf = sp.csr_matrix(
     (weight_tfidf, (row, col)), shape=(node_size, node_size))
 
-
+adj_nf = sp.csr_matrix(
+    (weight_nf, (row_nf, col_nf)), shape=(train_size+test_size, vocab_size))
 '''
     After creating sparse matrices, we dump them to pickle objects
 '''
@@ -549,7 +557,7 @@ def dump_obj(obj, obj_name, dataset):
 
 
 objs = [(x, 'x'), (y, 'y'), (tx, 'tx'), (ty, 'ty'), (allx, 'allx'), (ally, 'ally'), (adj, 'adj'),
-        (adj_pmi, 'adj_pmi'), (adj_tfidf, 'adj_tfidf')]
+        (adj_pmi, 'adj_pmi'), (adj_tfidf, 'adj_tfidf'), (adj_nf, 'adj_nf')]
 
 for obj_tuple in objs:
     obj, obj_name = obj_tuple

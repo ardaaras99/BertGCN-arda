@@ -21,32 +21,9 @@ import os
     use the default values
     ex: python --max_length 128 --batch_size 32
 '''
-# parser = argparse.ArgumentParser()
-# parser.add_argument('--max_length', type=int, default=128,
-#                     help='the input length for bert')
-# parser.add_argument('--batch_size', type=int, default=128)
-# parser.add_argument('--nb_epochs', type=int, default=60)
-# parser.add_argument('--bert_lr', type=float, default=1e-4)
-# parser.add_argument('--dataset', default='20ng',
-#                     choices=['20ng', 'R8', 'R52', 'ohsumed', 'mr'])
-# parser.add_argument('--bert_init', type=str, default='roberta-base',
-#                     choices=['roberta-base', 'roberta-large', 'bert-base-uncased', 'bert-large-uncased'])
-# parser.add_argument('--checkpoint_dir', default=None,
-#                     help='checkpoint directory, [bert_init]_[dataset] if not specified')
 
-# args = parser.parse_args()
-
-# max_length = args.max_length
-# batch_size = args.batch_size
-# nb_epochs = args.nb_epochs
-# bert_lr = args.bert_lr
-# dataset = args.dataset
-# bert_init = args.bert_init
-# checkpoint_dir = args.checkpoint_dir
-
-
-max_length = 16
-batch_size = 4
+max_length = 10
+batch_size = 256
 nb_epochs = 5
 bert_lr = 1e-4
 dataset = 'mr'
