@@ -18,7 +18,7 @@ import torch.nn as nn
 # Model specification initializations
 nb_epochs = 100
 
-max_length = 128
+max_length = 10
 batch_size = 256
 m = 0.7  # lambda in paper
 bert_init = 'roberta-base'
@@ -28,7 +28,6 @@ checkpoint_dir = None
 gcn_model = 'gcn_sparse'
 # gcn_layers = 2
 n_hidden = 200
-heads = 8
 bert_lr = 1e-3
 
 no_cuda, fastmode, seed, epochs, gcn_lr = False, False, 42, 200, 2e-3

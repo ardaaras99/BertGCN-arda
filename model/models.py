@@ -37,7 +37,7 @@ class GCN_scratch(nn.Module):
         x = F.relu(self.gc1(x, FN))
         x = F.dropout(x, self.dropout, training=self.training)
         x = self.gc2(x, NF)
-        return x
+        return F.log_softmax(x, dim=1)
 
 
 class BertGCN_sparse(th.nn.Module):

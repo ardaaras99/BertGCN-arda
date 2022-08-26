@@ -60,34 +60,34 @@ model = BertGCN_sparse(nfeat=768, nb_class=nb_class, pretrained_model=bert_init,
 
 
 # region
-# if pretrained_bert_ckpt is not None:
-#     ckpt = th.load(pretrained_bert_ckpt, map_location=gpu)
-#     model.bert_model.load_state_dict(ckpt['bert_model'])
-#     model.classifier.load_state_dict(ckpt['classifier'])
+if pretrained_bert_ckpt is not None:
+    ckpt = th.load(pretrained_bert_ckpt, map_location=gpu)
+    model.bert_model.load_state_dict(ckpt['bert_model'])
+    model.classifier.load_state_dict(ckpt['classifier'])
 
-# corpse_file = './data/corpus/' + dataset + '_shuffle.txt'
-# with open(corpse_file, 'r') as f:
-#     text = f.read()
-#     text = text.replace('\\', '')
-#     text = text.split('\n')
-
-
-# def encode_input(text, tokenizer):
-#     input = tokenizer(text, max_length=max_length, truncation=True,
-#                       padding='max_length', return_tensors='pt')
-# #     print(input.keys())
-#     return input.input_ids, input.attention_mask
+corpse_file = './data/corpus/' + dataset + '_shuffle.txt'
+with open(corpse_file, 'r') as f:
+    text = f.read()
+    text = text.replace('\\', '')
+    text = text.split('\n')
 
 
-# '''
-#     Here input ids for word indices are all zero, same for attention mask
-# '''
-# input_ids, attention_mask = encode_input(text, model.tokenizer)
-# input_ids = th.cat([input_ids[:-nb_test], th.zeros((nb_word,
-#                    max_length), dtype=th.long), input_ids[-nb_test:]])
+def encode_input(text, tokenizer):
+    input = tokenizer(text, max_length=max_length, truncation=True,
+                      padding='max_length', return_tensors='pt')
+#     print(input.keys())
+    return input.input_ids, input.attention_mask
 
-# attention_mask = th.cat([attention_mask[:-nb_test], th.zeros(
-#     (nb_word, max_length), dtype=th.long), attention_mask[-nb_test:]])
+
+'''
+    Here input ids for word indices are all zero, same for attention mask
+'''
+input_ids, attention_mask = encode_input(text, model.tokenizer)
+input_ids = th.cat([input_ids[:-nb_test], th.zeros((nb_word,
+                   max_length), dtype=th.long), input_ids[-nb_test:]])
+
+attention_mask = th.cat([attention_mask[:-nb_test], th.zeros(
+    (nb_word, max_length), dtype=th.long), attention_mask[-nb_test:]])
 # endregion
 
 y = y_train + y_test + y_val
@@ -110,7 +110,14 @@ idx_train, idx_val, idx_test = th.LongTensor(data['train_nodes']), th.LongTensor
 
 labels = th.LongTensor(y[doc_mask]).cuda()
 
-features = th.eye(labels.shape[0])
+dataloader = Data.DataLoader(
+    Data.TensorDataset(input_ids[doc_mask],
+                       attention_mask[doc_mask]),
+    batch_size=1024
+)
+features = get_bert_output(dataloader, model, gpu)
+
+#features = th.eye(labels.shape[0])
 
 '''
     here I implement HeteGCN(TX-X) or FN-NF path
