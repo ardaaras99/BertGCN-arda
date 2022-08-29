@@ -1,0 +1,16 @@
+{
+    "nb_epochs": 50,
+    "max_length": 100,
+    "batch_size": 256,
+    "m": 0.7,
+    "bert_init": "roberta-base",
+    "pretrained_bert_ckpt": "",
+    "dataset": "mr",
+    "checkpoint_dir": "",
+    "n_hidden": 200,
+    "bert_lr": 1e-5,
+    "gcn_lr": 1e-3,
+    "gcn_model": "bert_hete-gcn",
+    "dropout": 0.5,
+    "weight_decay": 5e-4
+}

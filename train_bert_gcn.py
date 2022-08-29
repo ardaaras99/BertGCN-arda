@@ -1,3 +1,4 @@
+# %%
 import torch as th
 from transformers import AutoModel, AutoTokenizer
 import torch.nn.functional as F
@@ -16,57 +17,29 @@ import logging
 from datetime import datetime
 from torch.optim import lr_scheduler
 from model import BertGCN, BertGAT
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--max_length', type=int, default=128,
-                    help='the input length for bert')
-parser.add_argument('--batch_size', type=int, default=64)
-parser.add_argument('-m', '--m', type=float, default=0.7,
-                    help='the factor balancing BERT and GCN prediction')
-parser.add_argument('--nb_epochs', type=int, default=50)
-parser.add_argument('--bert_init', type=str, default='roberta-base',
-                    choices=['roberta-base', 'roberta-large', 'bert-base-uncased', 'bert-large-uncased'])
-parser.add_argument('--pretrained_bert_ckpt', default=None)
-parser.add_argument('--dataset', default='20ng',
-                    choices=['20ng', 'R8', 'R52', 'ohsumed', 'mr'])
-parser.add_argument('--checkpoint_dir', default=None,
-                    help='checkpoint directory, [bert_init]_[gcn_model]_[dataset] if not specified')
-parser.add_argument('--gcn_model', type=str,
-                    default='gcn', choices=['gcn', 'gat'])
-parser.add_argument('--gcn_layers', type=int, default=2)
-parser.add_argument('--n_hidden', type=int, default=200,
-                    help='the dimension of gcn hidden layer, the dimension for gat is n_hidden * heads')
-parser.add_argument('--heads', type=int, default=8,
-                    help='the number of attentionn heads for gat')
-parser.add_argument('--dropout', type=float, default=0.5)
-parser.add_argument('--gcn_lr', type=float, default=1e-3)
-parser.add_argument('--bert_lr', type=float, default=1e-5)
-
+from scipy.sparse import vstack, hstack
+# %%
+# Model specification initializations
+max_length = 10
+batch_size = 256
+m = 0.7
+nb_epochs = 50
+bert_init = 'roberta-base'
+pretrained_bert_ckpt = None
+dataset = 'mr'
+checkpoint_dir = None
+gcn_model = 'gcn'
+gcn_layers = 2
+n_hidden = 200
+heads = 1
+dropout = 0.5
+gcn_lr = 1e-3
+bert_lr = 1e-5
 '''
-    Functionality to choose among any graph
+    newly added features
 '''
-parser.add_argument('--graph_type', default='normal',
-                    choices=['normal', 'pmi', 'tfidf'])
-
-args = parser.parse_args()
-max_length = args.max_length
-batch_size = args.batch_size
-m = args.m
-nb_epochs = args.nb_epochs
-bert_init = args.bert_init
-pretrained_bert_ckpt = args.pretrained_bert_ckpt
-dataset = args.dataset
-checkpoint_dir = args.checkpoint_dir
-gcn_model = args.gcn_model
-gcn_layers = args.gcn_layers
-n_hidden = args.n_hidden
-heads = args.heads
-dropout = args.dropout
-gcn_lr = args.gcn_lr
-bert_lr = args.bert_lr
-
-# added newly
-graph_type = args.graph_type
+use_dgl = True  # to use default implementation with dgl or not
+graph_type = 'normal'  # choose among ['normal', 'tfidf', 'pmi']
 
 if checkpoint_dir is None:
     ckpt_dir = './checkpoint/{}_{}_{}'.format(bert_init, gcn_model, dataset)
@@ -91,11 +64,11 @@ cpu = th.device('cpu')
 gpu = th.device('cuda:0')
 
 logger.info('arguments:')
-logger.info(str(args))
+# logger.info(str(args))
 logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
-
+# %%
 # Data Preprocess
-adj, adj_pmi, adj_tfidf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
+adj, adj_pmi, adj_tfidf, adj_nf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
     dataset)
 '''
 adj: n*n sparse adjacency matrix
@@ -139,11 +112,16 @@ def encode_input(text, tokenizer):
     return input.input_ids, input.attention_mask
 
 
+'''
+    word indices are all 0 here
+'''
 input_ids, attention_mask = encode_input(text, model.tokenizer)
 input_ids = th.cat([input_ids[:-nb_test], th.zeros((nb_word,
                    max_length), dtype=th.long), input_ids[-nb_test:]])
+
 attention_mask = th.cat([attention_mask[:-nb_test], th.zeros(
     (nb_word, max_length), dtype=th.long), attention_mask[-nb_test:]])
+
 
 # transform one-hot label to class ID for pytorch computation
 y = y_train + y_test + y_val
@@ -153,6 +131,11 @@ y = y.argmax(axis=1)
 # document mask used for update feature
 doc_mask = train_mask + val_mask + test_mask
 
+# %%
+
+if graph_type is None:
+    graph_type = 'normal'
+
 if graph_type == 'normal':
     adj_norm = normalize_adj(adj + sp.eye(adj.shape[0]))
 elif graph_type == 'pmi':
@@ -161,8 +144,6 @@ elif graph_type == 'pmi':
 elif graph_type == 'tfidf':
     adj_norm = normalize_adj(adj_tfidf + sp.eye(adj_tfidf.shape[0]))
 
-# %%
-# build DGL Graph
 g = dgl.from_scipy(adj_norm.astype('float32'), eweight_name='edge_weight')
 g.ndata['input_ids'], g.ndata['attention_mask'] = input_ids, attention_mask
 g.ndata['label'], g.ndata['train'], g.ndata['val'], g.ndata['test'] = \
@@ -173,6 +154,8 @@ g.ndata['cls_feats'] = th.zeros((nb_node, model.feat_dim))
 
 logger.info('graph information:')
 logger.info(str(g))
+
+# %%
 
 # create index loader
 train_idx = Data.TensorDataset(th.arange(0, nb_train, dtype=th.long))
@@ -188,7 +171,12 @@ idx_loader_val = Data.DataLoader(val_idx, batch_size=batch_size)
 idx_loader_test = Data.DataLoader(test_idx, batch_size=batch_size)
 idx_loader = Data.DataLoader(doc_idx, batch_size=batch_size, shuffle=True)
 
-# Training
+# %%
+
+# %%
+# Training Engine
+
+A = adj_pmi[train_size: train_size + nb_word, train_size: train_size + nb_word]
 
 
 def update_feature():
@@ -220,6 +208,7 @@ optimizer = th.optim.Adam([
     {'params': model.gcn.parameters(), 'lr': gcn_lr},
 ], lr=1e-3
 )
+
 scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
 
 
@@ -315,3 +304,5 @@ def log_training_results(trainer):
 log_training_results.best_val_acc = 0
 g = update_feature()
 trainer.run(idx_loader, max_epochs=nb_epochs)
+
+# %%

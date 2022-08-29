@@ -1,55 +1,49 @@
-
-from model import BertClassifier
+# %%
+from transformers import AutoModel, AutoTokenizer
+from model import BertClassifier  # bu olay nedir ya
 from torch.optim import lr_scheduler
 import logging
 import shutil
 import argparse
 from sklearn.metrics import accuracy_score
-from datetime import datetime
 import numpy as np
 from ignite.metrics import Accuracy, Loss
 from ignite.engine import Events, create_supervised_evaluator, create_supervised_trainer, Engine
 import torch.utils.data as Data
 import torch as th
-from transformers import AutoModel, AutoTokenizer
 import torch.nn.functional as F
 from utils import *
 import os
-# os.add_dll_directory(
-#     r'C:\Users\metec\AppData\Local\pypoetry\Cache\virtualenvs\bertgcn-arda-new-PIoXg_iK-py3.9\lib\site-packages\dgl')
-# print(os.getcwd())
-import dgl
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--max_length', type=int, default=128,
-                    help='the input length for bert')
-parser.add_argument('--batch_size', type=int, default=128)
-parser.add_argument('--nb_epochs', type=int, default=60)
-parser.add_argument('--bert_lr', type=float, default=1e-4)
-parser.add_argument('--dataset', default='20ng',
-                    choices=['20ng', 'R8', 'R52', 'ohsumed', 'mr'])
-parser.add_argument('--bert_init', type=str, default='roberta-base',
-                    choices=['roberta-base', 'roberta-large', 'bert-base-uncased', 'bert-large-uncased'])
-parser.add_argument('--checkpoint_dir', default=None,
-                    help='checkpoint directory, [bert_init]_[dataset] if not specified')
 
-args = parser.parse_args()
+'''
+    We use parser to get input from command line, since all optional if not given any input it will
+    use the default values
+    ex: python --max_length 128 --batch_size 32
+'''
 
-max_length = args.max_length
-batch_size = args.batch_size
-nb_epochs = args.nb_epochs
-bert_lr = args.bert_lr
-dataset = args.dataset
-bert_init = args.bert_init
-checkpoint_dir = args.checkpoint_dir
+max_length = 10
+batch_size = 256
+nb_epochs = 5
+bert_lr = 1e-4
+dataset = 'mr'
+bert_init = 'roberta-base'
+checkpoint_dir = None
+'''
+    if not checkpoint given, save it to directory as follows
+'''
+
 if checkpoint_dir is None:
     ckpt_dir = './checkpoint/{}_{}'.format(bert_init, dataset)
 else:
     ckpt_dir = checkpoint_dir
 
+
+# Create directory and make copy of original file to that direcyory
 os.makedirs(ckpt_dir, exist_ok=True)
 shutil.copy(os.path.basename(__file__), ckpt_dir)
 
+# I guess this lines helps us to save output as log file
 sh = logging.StreamHandler(sys.stdout)
 sh.setFormatter(logging.Formatter('%(message)s'))
 sh.setLevel(logging.INFO)
@@ -66,38 +60,48 @@ cpu = th.device('cpu')
 gpu = th.device('cuda:0')
 
 logger.info('arguments:')
-logger.info(str(args))
+# logger.info(str(args))
 logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
 
 # Data Preprocess
-adj, adj_pmi, adj_tfidf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
-    dataset)
-'''
-y_train, y_val, y_test: n*c matrices 
-train_mask, val_mask, test_mask: n-d bool array
-train_size, test_size: unused
-'''
 
-# compute number of real train/val/test/word nodes and number of classes
+
+cpu = th.device('cpu')
+gpu = th.device('cuda:0')
+
+'''
+    Data Preprocess 
+'''
+adj, adj_pmi, adj_tfidf, adj_nf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
+    dataset)
+
+# Get train,test,val sizes
 nb_node = adj.shape[0]
 nb_train, nb_val, nb_test = train_mask.sum(), val_mask.sum(), test_mask.sum()
 nb_word = nb_node - nb_train - nb_val - nb_test
 nb_class = y_train.shape[1]
 
-# instantiate model according to class number
+# Define model
 model = BertClassifier(pretrained_model=bert_init, nb_class=nb_class)
-
+'''
+    y -> nb_node array (also includes words inside of it)
+    label -> dictionary that stores labels of each dataset 
+    text -> num_of_all_examples,1 stored as list of strings
+'''
 # transform one-hot label to class ID for pytorch computation
 y = th.LongTensor((y_train + y_val + y_test).argmax(axis=1))
 label = {}
 label['train'], label['val'], label['test'] = y[:nb_train], y[nb_train:nb_train+nb_val], y[-nb_test:]
-
 # load documents and compute input encodings
 corpus_file = './data/corpus/'+dataset+'_shuffle.txt'
 with open(corpus_file, 'r') as f:
     text = f.read()
     text = text.replace('\\', '')
     text = text.split('\n')
+
+'''
+    for BERT we give input as string, it will tokenize it for us
+'''
 
 
 def encode_input(text, tokenizer):
@@ -110,12 +114,13 @@ input_ids, attention_mask = {}, {}
 
 input_ids_, attention_mask_ = encode_input(text, model.tokenizer)
 
-# create train/test/val datasets and dataloaders
 input_ids['train'], input_ids['val'], input_ids['test'] = input_ids_[
     :nb_train], input_ids_[nb_train:nb_train+nb_val], input_ids_[-nb_test:]
+
 attention_mask['train'], attention_mask['val'], attention_mask['test'] = attention_mask_[
     :nb_train], attention_mask_[nb_train:nb_train+nb_val], attention_mask_[-nb_test:]
 
+# create train/test/val datasets and dataloaders
 datasets = {}
 loader = {}
 for split in ['train', 'val', 'test']:
@@ -124,7 +129,7 @@ for split in ['train', 'val', 'test']:
     loader[split] = Data.DataLoader(
         datasets[split], batch_size=batch_size, shuffle=True)
 
-
+# %%
 # Training
 
 optimizer = th.optim.Adam(model.parameters(), lr=bert_lr)
@@ -167,6 +172,8 @@ def test_step(engine, batch):
 
 
 evaluator = Engine(test_step)
+
+
 metrics = {
     'acc': Accuracy(),
     'nll': Loss(th.nn.CrossEntropyLoss())
@@ -188,7 +195,7 @@ def log_training_results(trainer):
     test_acc, test_nll = metrics["acc"], metrics["nll"]
     logger.info(
         "\rEpoch: {}  Train acc: {:.4f} loss: {:.4f}  Val acc: {:.4f} loss: {:.4f}  Test acc: {:.4f} loss: {:.4f}"
-        .format(trainer.state.epoch, train_acc*100, train_nll, val_acc*100, val_nll, test_acc*100, test_nll)
+        .format(trainer.state.epoch, train_acc, train_nll, val_acc, val_nll, test_acc, test_nll)
     )
     if val_acc > log_training_results.best_val_acc:
         logger.info("New checkpoint")
@@ -209,3 +216,5 @@ def log_training_results(trainer):
 
 log_training_results.best_val_acc = 0
 trainer.run(loader['train'], max_epochs=nb_epochs)
+
+# %%

@@ -12,8 +12,10 @@ import pickle as pkl
 import networkx as nx
 import scipy.sparse as sp
 from scipy.sparse.linalg import eigsh
-import re
 
+from types import SimpleNamespace
+from pathlib import Path
+from utils import *
 '''
     data/corpus -> directory has raw text of the documents
                     each line is training instance
@@ -22,23 +24,23 @@ import re
                     instance id, train or test identification and
                     label
 '''
-if len(sys.argv) != 2:
-    sys.exit("Use: python build_graph.py <dataset>")
+WORK_DIR = Path(__file__).parent
+CONFIG_PATH = Path.joinpath(
+    WORK_DIR, "configs/config_build_graph.json")
+config = load_config_json(CONFIG_PATH)
 
-datasets = ['20ng', 'R8', 'R52', 'ohsumed', 'mr']
-dataset = sys.argv[1]
+v = SimpleNamespace(**config)  # store v in config
 
 word_embeddings_dim = 300
 word_vector_map = {}  # this is not used, there is no word vector initialization
-if dataset not in datasets:
-    sys.exit("wrong dataset name")
+
 
 '''
     doc_name_list -> to store id info, which group it belongs and label
 '''
 doc_name_list, doc_train_list, doc_test_list = [], [], []
 
-f = open('data/' + dataset + '.txt', 'r')
+f = open('data/' + v.dataset + '.txt', 'r')
 lines = f.readlines()
 
 for line in lines:
@@ -56,7 +58,7 @@ f.close()
 '''
 doc_content_list = []
 
-f = open('data/corpus/' + dataset + '.clean.txt', 'r')
+f = open('data/corpus/' + v.dataset + '.clean.txt', 'r')
 lines = f.readlines()
 for line in lines:
     doc_content_list.append(line.strip())
@@ -79,12 +81,12 @@ random.shuffle(train_ids)
 random.shuffle(test_ids)
 
 train_ids_str = '\n'.join(str(index) for index in train_ids)
-f = open('data/' + dataset + '.train.index', 'w')
+f = open('data/' + v.dataset + '.train.index', 'w')
 f.write(train_ids_str)
 f.close()
 
 test_ids_str = '\n'.join(str(index) for index in test_ids)
-f = open('data/' + dataset + '.test.index', 'w')
+f = open('data/' + v.dataset + '.test.index', 'w')
 f.write(test_ids_str)
 f.close()
 
@@ -105,11 +107,11 @@ for id in ids:
 shuffle_doc_name_str = '\n'.join(shuffle_doc_name_list)
 shuffle_doc_words_str = '\n'.join(shuffle_doc_words_list)
 
-f = open('data/' + dataset + '_shuffle.txt', 'w')
+f = open('data/' + v.dataset + '_shuffle.txt', 'w')
 f.write(shuffle_doc_name_str)
 f.close()
 
-f = open('data/corpus/' + dataset + '_shuffle.txt', 'w')
+f = open('data/corpus/' + v.dataset + '_shuffle.txt', 'w')
 f.write(shuffle_doc_words_str)
 f.close()
 
@@ -170,7 +172,7 @@ for i in range(vocab_size):
     word_id_map[vocab[i]] = i
 
 vocab_str = '\n'.join(vocab)
-f = open('data/corpus/' + dataset + '_vocab.txt', 'w')
+f = open('data/corpus/' + v.dataset + '_vocab.txt', 'w')
 f.write(vocab_str)
 f.close()
 
@@ -184,7 +186,7 @@ for doc_meta in shuffle_doc_name_list:
 label_list = list(label_set)
 
 label_list_str = '\n'.join(label_list)
-f = open('data/corpus/' + dataset + '_labels.txt', 'w')
+f = open('data/corpus/' + v.dataset + '_labels.txt', 'w')
 f.write(label_list_str)
 f.close()
 
@@ -199,7 +201,7 @@ real_train_size = train_size - val_size  # - int(0.5 * train_size)
 real_train_doc_names = shuffle_doc_name_list[:real_train_size]
 real_train_doc_names_str = '\n'.join(real_train_doc_names)
 
-f = open('data/' + dataset + '.real_train.name', 'w')
+f = open('data/' + v.dataset + '.real_train.name', 'w')
 f.write(real_train_doc_names_str)
 f.close()
 
@@ -222,8 +224,6 @@ for i in range(real_train_size):
     for word in words:
         if word in word_vector_map:  # never enters here
             word_vector = word_vector_map[word]
-            # print(doc_vec)
-            # print(np.array(word_vector))
             doc_vec = doc_vec + np.array(word_vector)
 
     for j in range(word_embeddings_dim):
@@ -234,6 +234,7 @@ for i in range(real_train_size):
 
 x = sp.csr_matrix((data_x, (row_x, col_x)), shape=(
     real_train_size, word_embeddings_dim))
+print("\n***After train val split***")
 print('Number of real training documents: ' + str(real_train_size))
 y = []
 for i in range(real_train_size):
@@ -354,15 +355,6 @@ ally = np.array(ally)
     We split the X matrix into components but it is not one-hot anymore
 '''
 
-print("Real training matrix shape (n_doc_train,w_e_dim): " + str(x.shape) + '\n',
-      "Label training matrix shape (real_train_size,n_class): " +
-      str(y.shape) + '\n',
-      "Real test matrix shape (test_ize,w_e_dim): " + str(tx.shape) + '\n',
-      "Label test matrix shape (test_size,n_class): " + str(ty.shape) + '\n',
-      "All nodes matrix shape (train_size + vocab_size ,w_e_dim): " +
-      str(allx.shape) + '\n',
-      "All nodes label matrix, words do not have labels " + str(ally.shape) + '\n')
-
 '''
     From now on, we will create our graphs
 '''
@@ -427,6 +419,8 @@ for window in windows:
 
 row, col, weight = [], [], []  # to have them in single graph
 weight_tfidf, weight_pmi = [], []
+
+row_nf, col_nf, weight_nf = [], [], []
 '''
     We calculate PMI score with word_pair_count & word_window_freq
     note that adjacency matrix has documents first then words, so in original
@@ -491,11 +485,16 @@ for i, doc_words in enumerate(shuffle_doc_words_list):
             k = k + 1
 
         col.append(train_size + j)
+
+        row_nf.append(i)
+        col_nf.append(j)
         idf = log(1.0 * len(shuffle_doc_words_list) /
                   word_doc_freq[vocab[j]])
 
         weight.append(freq * idf)
         weight_tfidf.append(freq*idf)
+        weight_nf.append(freq*idf)
+
         weight_pmi.append(1e-8)
         doc_word_set.add(word)
 
@@ -519,26 +518,14 @@ adj_pmi = sp.csr_matrix(
 adj_tfidf = sp.csr_matrix(
     (weight_tfidf, (row, col)), shape=(node_size, node_size))
 
-
+adj_nf = sp.csr_matrix(
+    (weight_nf, (row_nf, col_nf)), shape=(train_size+test_size, vocab_size))
 '''
     After creating sparse matrices, we dump them to pickle objects
 '''
 
 
 def dump_obj(obj, obj_name, dataset):
-    '''
-    Uploads data to gcn/data directory 
-
-    ind.dataset_str.x => the feature vectors of the training docs as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.tx => the feature vectors of the test docs as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.allx => the feature vectors of both labeled and unlabeled training docs/words
-        (a superset of ind.dataset_str.x) as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.y => the one-hot labels of the labeled training docs as numpy.ndarray object;
-    ind.dataset_str.ty => the one-hot labels of the test docs as numpy.ndarray object;
-    ind.dataset_str.ally => the labels for instances in ind.dataset_str.allx as numpy.ndarray object;
-    ind.dataset_str.adj => adjacency matrix of word/doc nodes as scipy.sparse.csr.csr_matrix object;
-    ind.dataset_str.train.index => the indices of training docs in original doc list.
-    '''
 
     f = open("data/ind.{}.{}".format(dataset, obj_name), 'wb')
     pkl.dump(obj, f)
@@ -546,11 +533,11 @@ def dump_obj(obj, obj_name, dataset):
 
 
 objs = [(x, 'x'), (y, 'y'), (tx, 'tx'), (ty, 'ty'), (allx, 'allx'), (ally, 'ally'), (adj, 'adj'),
-        (adj_pmi, 'adj_pmi'), (adj_tfidf, 'adj_tfidf')]
+        (adj_pmi, 'adj_pmi'), (adj_tfidf, 'adj_tfidf'), (adj_nf, 'adj_nf')]
 
 for obj_tuple in objs:
     obj, obj_name = obj_tuple
-    dump_obj(obj, obj_name, dataset)
+    dump_obj(obj, obj_name, v.dataset)
 
 ### END OF BUILD GRAPH PROCEDURE ###
 
