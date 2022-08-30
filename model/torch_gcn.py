@@ -57,3 +57,19 @@ class GCN_scratch(nn.Module):
         x = self.gc2(x, NF)
         # no log softmax here, it will be done in combined model
         return x
+
+
+class GCN_scratch_2(nn.Module):
+    def __init__(self, nfeat, n_hidden1, n_hidden2=100, dropout=0.5):
+        super(GCN_scratch_2, self).__init__()
+
+        self.gc1 = GraphConvolution(nfeat, n_hidden1)
+        self.gc2 = GraphConvolution(n_hidden1, n_hidden2)
+        self.dropout = dropout
+
+    def forward(self, x, NF, FN):
+        x = F.relu(self.gc1(x, FN))
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = self.gc2(x, NF)
+        # no log softmax here, it will be done in combined model
+        return x

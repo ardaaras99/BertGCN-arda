@@ -1,8 +1,8 @@
 {
     "nb_epochs": 50,
-    "max_length": 100,
+    "max_length": 10,
     "batch_size": 256,
-    "m": 0.7,
+    "m": 0.42,
     "bert_init": "roberta-base",
     "pretrained_bert_ckpt": "",
     "dataset": "mr",
@@ -12,5 +12,6 @@
     "gcn_lr": 1e-3,
     "gcn_model": "bert_hete-gcn",
     "dropout": 0.5,
-    "weight_decay": 5e-4
+    "weight_decay": 5e-4,
+    "use_concat": "yes"
 }

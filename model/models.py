@@ -2,7 +2,7 @@ from random import seed
 import torch as th
 import torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
-from .torch_gcn import GCN, GCN_scratch
+from .torch_gcn import GCN, GCN_scratch, GCN_scratch_2
 from .torch_gat import GAT
 
 
@@ -24,6 +24,42 @@ class BertClassifier(th.nn.Module):
         cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]
         cls_logit = self.classifier(cls_feats)
         return cls_logit
+
+
+class BertGCN_sparse_concat(th.nn.Module):
+    def __init__(self, nfeat, pretrained_model='roberta_base', nb_class=20, m=0.7, n_hidden=200, dropout=0.5):
+        super(BertGCN_sparse_concat, self).__init__()
+        self.nfeat = nfeat
+        self.m = m
+        self.nb_class = nb_class
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
+        self.bert_model = AutoModel.from_pretrained(pretrained_model)
+        self.feat_dim = list(self.bert_model.modules())[-2].out_features
+        self.classifier = th.nn.Linear(self.feat_dim, 300)
+        # new ones
+        self.gcn = GCN_scratch_2(nfeat=self.nfeat,
+                                 n_hidden1=n_hidden,
+                                 n_hidden2=200,
+                                 dropout=dropout)
+
+    def forward(self, g_input_ids, g_attention_mask, g_cls_feats, NF, FN, idx):
+
+        input_ids, attention_mask = g_input_ids[idx], g_attention_mask[idx]
+        if self.training:
+            cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]
+            g_cls_feats[idx] = cls_feats
+        else:
+            cls_feats = g_cls_feats[idx]
+
+        cls_out = self.classifier(cls_feats)
+
+        x = g_cls_feats
+        x = x.cuda()
+        gcn_out = self.gcn(x, NF, FN)[idx]
+        out_concat = th.concat((gcn_out, cls_out), 1)
+        pred = th.nn.Softmax(dim=1)(out_concat)
+        pred = th.log(pred)
+        return pred
 
 
 class BertGCN_sparse(th.nn.Module):

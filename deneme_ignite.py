@@ -15,12 +15,11 @@ import shutil
 import sys
 import logging
 from torch.optim import lr_scheduler
-from model import BertGCN_sparse
+from model import BertGCN_sparse, BertGCN_sparse_concat
 
 from types import SimpleNamespace
 from pathlib import Path
 
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 WORK_DIR = Path(__file__).parent
 CONFIG_PATH = Path.joinpath(
@@ -38,6 +37,7 @@ else:
 os.makedirs(ckpt_dir, exist_ok=True)
 shutil.copy(os.path.basename(__file__), ckpt_dir)
 
+# buraya gerek var mı tunaya sor
 sh = logging.StreamHandler(sys.stdout)
 sh.setFormatter(logging.Formatter('%(message)s'))
 sh.setLevel(logging.INFO)
@@ -67,9 +67,12 @@ nb_word = nb_node - nb_train - nb_val - nb_test
 nb_class = y_train.shape[1]
 
 # instantiate model according to class number
-model = BertGCN_sparse(nfeat=768, nb_class=nb_class, pretrained_model=v.bert_init, m=v.m,
-                       n_hidden=v.n_hidden, dropout=v.dropout)
-
+if v.use_concat == "yes":
+    model = BertGCN_sparse_concat(nfeat=768, nb_class=nb_class, pretrained_model=v.bert_init, m=v.m,
+                                  n_hidden=v.n_hidden, dropout=v.dropout)
+else:
+    model = BertGCN_sparse(nfeat=768, nb_class=nb_class, pretrained_model=v.bert_init, m=v.m,
+                           n_hidden=v.n_hidden, dropout=v.dropout)
 
 if v.pretrained_bert_ckpt != "":
     ckpt = th.load(v.pretrained_bert_ckpt, map_location=gpu)
@@ -84,25 +87,30 @@ with open(corpse_file, 'r') as f:
     text = text.replace('\\', '')
     text = text.split('\n')
 
+'''
+    here we get the maximum sentence lenght and update v.max_length accordingly
+'''
+c_max = max([len(sentence.split()) for sentence in text])
+
+if c_max < v.max_length:
+    v.max_length = c_max
+
 
 def encode_input(text, tokenizer):
     input = tokenizer(text, max_length=v.max_length, truncation=True,
                       padding='max_length', return_tensors='pt')
-#     print(input.keys())
     return input.input_ids, input.attention_mask
 
 
 input_ids, attention_mask = encode_input(text, model.tokenizer)
-# input_ids = th.cat([input_ids[:-nb_test], th.zeros((nb_word,
-#                    v.max_length), dtype=th.long), input_ids[-nb_test:]])
-# attention_mask = th.cat([attention_mask[:-nb_test], th.zeros(
-#     (nb_word, v.max_length), dtype=th.long), attention_mask[-nb_test:]])
 
-# transform one-hot label to class ID for pytorch computation
 y = y_train + y_test + y_val
 y_train = y_train.argmax(axis=1)
 y = y.argmax(axis=1)
 
+'''
+    wordleri içinden siliyoruz, bunun direkt alış kısmını değiştiririz
+'''
 y = np.delete(y, np.arange(nb_train+nb_val, nb_train+nb_val+nb_word))
 y_train = np.delete(y_train, np.arange(
     nb_train+nb_val, nb_train+nb_val+nb_word))
@@ -195,7 +203,7 @@ optimizer = th.optim.Adam([
     {'params': model.bert_model.parameters(), 'lr': v.bert_lr},
     {'params': model.classifier.parameters(), 'lr': v.bert_lr},
     {'params': model.gcn.parameters(), 'lr': v.gcn_lr},
-], lr=1e-3
+], lr=1e-3, weight_decay=v.weight_decay
 )
 scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
 
@@ -210,7 +218,8 @@ def train_step(engine, batch):
     optimizer.zero_grad()
     (idx, ) = [x.to(gpu) for x in batch]
     optimizer.zero_grad()
-    # ya bu train mask çok saçma
+    # ya bu train mask çok saçma zaten elimizde var neden gerek duyulmuş bir daha anlamadım
+    # çok da bir şey değişmiyor sanki global olarak erişebiliriz
     train_mask = g_train[idx].type(th.BoolTensor)
     y_pred = model(g_input_ids,
                    g_attention_mask, g_cls_feats, NF, FN, idx)[train_mask]
@@ -298,7 +307,6 @@ def log_training_results(trainer):
 
 log_training_results.best_val_acc = 0
 g_cls_feats = update_feature()
-print(g_cls_feats[:2])
 
 # %%
 trainer.run(idx_loader, max_epochs=v.nb_epochs)
