@@ -1,5 +1,5 @@
 {
-    "nb_epochs": 50,
+    "nb_epochs": 2,
     "max_length": 10,
     "batch_size": 256,
     "m": 0.42,
@@ -8,10 +8,10 @@
     "dataset": "mr",
     "checkpoint_dir": "",
     "n_hidden": 200,
-    "bert_lr": 1e-5,
-    "gcn_lr": 1e-3,
+    "bert_lr": 1e-05,
+    "gcn_lr": 0.001,
     "gcn_model": "bert_hete-gcn",
     "dropout": 0.5,
-    "weight_decay": 5e-4,
-    "use_concat": "yes"
+    "weight_decay": 0.0005,
+    "use_concat": "no"
 }

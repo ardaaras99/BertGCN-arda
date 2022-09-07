@@ -32,14 +32,15 @@ class BertGCN_sparse_concat(th.nn.Module):
         self.nfeat = nfeat
         self.m = m
         self.nb_class = nb_class
+        self.n_hidden2 = 200
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
         self.bert_model = AutoModel.from_pretrained(pretrained_model)
         self.feat_dim = list(self.bert_model.modules())[-2].out_features
-        self.classifier = th.nn.Linear(self.feat_dim, 300)
+        self.classifier = th.nn.Linear(self.feat_dim + self.n_hidden2, 300)
         # new ones
         self.gcn = GCN_scratch_2(nfeat=self.nfeat,
                                  n_hidden1=n_hidden,
-                                 n_hidden2=200,
+                                 n_hidden2=self.n_hidden2,
                                  dropout=dropout)
 
     def forward(self, g_input_ids, g_attention_mask, g_cls_feats, NF, FN, idx):
@@ -56,10 +57,10 @@ class BertGCN_sparse_concat(th.nn.Module):
         x = g_cls_feats
         x = x.cuda()
         gcn_out = self.gcn(x, NF, FN)[idx]
-        out_concat = th.concat((gcn_out, cls_out), 1)
-        pred = th.nn.Softmax(dim=1)(out_concat)
-        pred = th.log(pred)
-        return pred
+        out_concat = th.concat((gcn_out, cls_feats), 1)
+        out_logit = self.classifier(out_concat)
+
+        return th.log(th.nn.Softmax(dim=1)(out_logit))
 
 
 class BertGCN_sparse(th.nn.Module):

@@ -9,3 +9,4 @@
 - 0.4 m le runlamak 89.87 acc verdi bir epoch
 - outputu concatlama fikri de güzel olabilir (bunları mod yapabilirsin config içine koyarsın)
 - ensemble modeller için biraz fikir edinebilirsin
+- data augmentation yapmak hile olur mu? (muhtemelen)

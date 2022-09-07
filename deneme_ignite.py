@@ -29,7 +29,7 @@ config = load_config_json(CONFIG_PATH)
 v = SimpleNamespace(**config)  # store v in config
 
 if v.checkpoint_dir == "":
-    ckpt_dir = './checkpoint/{}_{}_{}'.format(
+    ckpt_dir = 'checkpoint/{}_{}_{}'.format(
         v.bert_init, v.gcn_model, v.dataset)
 else:
     ckpt_dir = v.checkpoint_dir
@@ -75,10 +75,21 @@ else:
                            n_hidden=v.n_hidden, dropout=v.dropout)
 
 if v.pretrained_bert_ckpt != "":
-    ckpt = th.load(v.pretrained_bert_ckpt, map_location=gpu)
+    print("We use pretrained model")
+    ckpt = th.load(os.path.join(
+        v.pretrained_bert_ckpt, 'checkpoint.pth'
+    ), map_location=gpu)
     model.bert_model.load_state_dict(ckpt['bert_model'])
     model.classifier.load_state_dict(ckpt['classifier'])
 
+
+config["pretrained_bert_ckpt"] = ""
+# Serializing json
+json_object = json.dumps(config, indent=4)
+
+# Writing to sample.json
+with open("configs/config_train_bert_hete_gcn.json", "w") as outfile:
+    outfile.write(json_object)
 
 # load documents and compute input encodings
 corpse_file = './data/corpus/' + v.dataset + '_shuffle.txt'
