@@ -1,160 +1,16 @@
 # %%
-from model import GCN_scratch
-import torch as th
-from transformers import AutoModel, AutoTokenizer
-import torch.nn.functional as F
-from utils import *
-import dgl
-import torch.utils.data as Data
-from ignite.engine import Events, create_supervised_evaluator, create_supervised_trainer, Engine
-from ignite.metrics import Accuracy, Loss
-from sklearn.metrics import accuracy_score
-import numpy as np
-import os
-import shutil
-import sys
-import logging
-from torch.optim import lr_scheduler
-from model import BertGCN_sparse, BertGCN_sparse_concat
-
-from types import SimpleNamespace
+from transformers import logging
 from pathlib import Path
-
-
-WORK_DIR = Path(__file__).parent
-CONFIG_PATH = Path.joinpath(
-    WORK_DIR, "configs/config_train_bert_hete_gcn.json")
-config = load_config_json(CONFIG_PATH)
-
-v = SimpleNamespace(**config)  # store v in config
-
-if v.checkpoint_dir == "":
-    ckpt_dir = 'checkpoint/{}_{}_{}'.format(
-        v.bert_init, v.gcn_model, v.dataset)
-else:
-    ckpt_dir = v.checkpoint_dir
-
-os.makedirs(ckpt_dir, exist_ok=True)
-shutil.copy(os.path.basename(__file__), ckpt_dir)
-
-# buraya gerek var mı tunaya sor
-sh = logging.StreamHandler(sys.stdout)
-sh.setFormatter(logging.Formatter('%(message)s'))
-sh.setLevel(logging.INFO)
-fh = logging.FileHandler(filename=os.path.join(
-    ckpt_dir, 'training.log'), mode='w')
-fh.setFormatter(logging.Formatter('%(message)s'))
-fh.setLevel(logging.INFO)
-logger = logging.getLogger('training logger')
-logger.addHandler(sh)
-logger.addHandler(fh)
-logger.setLevel(logging.INFO)
-
-cpu = th.device('cpu')
-gpu = th.device('cuda:0')
-
-logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
-
-# Data Preprocess
-adj, adj_pmi, adj_tfidf, adj_nf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
-    v.dataset)
-
-
-# compute number of real train/val/test/word nodes and number of classes
-nb_node = features.shape[0]
-nb_train, nb_val, nb_test = train_mask.sum(), val_mask.sum(), test_mask.sum()
-nb_word = nb_node - nb_train - nb_val - nb_test
-nb_class = y_train.shape[1]
-
-# instantiate model according to class number
-if v.use_concat == "yes":
-    model = BertGCN_sparse_concat(nfeat=768, nb_class=nb_class, pretrained_model=v.bert_init, m=v.m,
-                                  n_hidden=v.n_hidden, dropout=v.dropout)
-else:
-    model = BertGCN_sparse(nfeat=768, nb_class=nb_class, pretrained_model=v.bert_init, m=v.m,
-                           n_hidden=v.n_hidden, dropout=v.dropout)
-
-if v.pretrained_bert_ckpt != "":
-    print("We use pretrained model")
-    ckpt = th.load(os.path.join(
-        v.pretrained_bert_ckpt, 'checkpoint.pth'
-    ), map_location=gpu)
-    model.bert_model.load_state_dict(ckpt['bert_model'])
-    model.classifier.load_state_dict(ckpt['classifier'])
-
-
-config["pretrained_bert_ckpt"] = ""
-# Serializing json
-json_object = json.dumps(config, indent=4)
-
-# Writing to sample.json
-with open("configs/config_train_bert_hete_gcn.json", "w") as outfile:
-    outfile.write(json_object)
-
-# load documents and compute input encodings
-corpse_file = './data/corpus/' + v.dataset + '_shuffle.txt'
-with open(corpse_file, 'r') as f:
-    text = f.read()
-    text = text.replace('\\', '')
-    text = text.split('\n')
-
-'''
-    here we get the maximum sentence lenght and update v.max_length accordingly
-'''
-c_max = max([len(sentence.split()) for sentence in text])
-
-if c_max < v.max_length:
-    v.max_length = c_max
-
-
-def encode_input(text, tokenizer):
-    input = tokenizer(text, max_length=v.max_length, truncation=True,
-                      padding='max_length', return_tensors='pt')
-    return input.input_ids, input.attention_mask
-
-
-input_ids, attention_mask = encode_input(text, model.tokenizer)
-
-y = y_train + y_test + y_val
-y_train = y_train.argmax(axis=1)
-y = y.argmax(axis=1)
-
-'''
-    wordleri içinden siliyoruz, bunun direkt alış kısmını değiştiririz
-'''
-y = np.delete(y, np.arange(nb_train+nb_val, nb_train+nb_val+nb_word))
-y_train = np.delete(y_train, np.arange(
-    nb_train+nb_val, nb_train+nb_val+nb_word))
-y_val = np.delete(y_val, np.arange(nb_train+nb_val, nb_train+nb_val+nb_word))
-
-train_mask = np.delete(train_mask, np.arange(
-    nb_train+nb_val, nb_train+nb_val+nb_word))
-val_mask = np.delete(val_mask, np.arange(
-    nb_train+nb_val, nb_train+nb_val+nb_word))
-test_mask = np.delete(test_mask, np.arange(
-    nb_train+nb_val, nb_train+nb_val+nb_word))
-# document mask used for update feature
-doc_mask = train_mask + val_mask + test_mask
-# %%
-# graph creation
-NF = adj_nf
-FN = adj_nf.T
-NF = normalize_sparse_graph(NF, -0.5, -0.5)
-FN = normalize_sparse_graph(FN, -0.5, -0.5)
-NF = to_torch_sparse_tensor(NF)
-FN = to_torch_sparse_tensor(FN)
-
-NF = NF.to(gpu)
-FN = FN.to(gpu)
-
-
-g_label = th.LongTensor(y)
-g_train = th.FloatTensor(train_mask)
-g_val = th.FloatTensor(val_mask)
-g_test = th.FloatTensor(test_mask)
-g_label_train = th.LongTensor(y_train)
-g_cls_feats = th.zeros((nb_train+nb_val+nb_test, model.feat_dim))
-g_input_ids, g_attention_mask = input_ids, attention_mask
+from torch.optim import lr_scheduler
+from sklearn.metrics import accuracy_score
+from ignite.metrics import Accuracy, Loss
+from ignite.engine import Events, Engine
+import torch.utils.data as Data
+from utils.utils_train import *
+from utils.utils import *
+import torch.nn.functional as F
+import torch as th
+import os
 
 
 def take_to(x):
@@ -169,26 +25,10 @@ def take_to(x):
     g_attention_mask = g_attention_mask.to(x)
 
 
-# create index loader
-train_idx = Data.TensorDataset(th.arange(0, nb_train, dtype=th.long))
-val_idx = Data.TensorDataset(
-    th.arange(nb_train, nb_train + nb_val, dtype=th.long))
-test_idx = Data.TensorDataset(
-    th.arange(nb_train+nb_val, nb_train+nb_val+nb_test, dtype=th.long))
-doc_idx = Data.ConcatDataset([train_idx, val_idx, test_idx])
-
-idx_loader_train = Data.DataLoader(
-    train_idx, batch_size=v.batch_size, shuffle=True)
-idx_loader_val = Data.DataLoader(val_idx, batch_size=v.batch_size)
-idx_loader_test = Data.DataLoader(test_idx, batch_size=v.batch_size)
-idx_loader = Data.DataLoader(doc_idx, batch_size=v.batch_size, shuffle=True)
-
-# %%
-# Training
-
-
 def update_feature():
-    global model, g_cls_feats, g_input_ids, g_attention_mask
+    global model, g_cls_feats, g_input_ids, g_attention_mask, input_type
+    if input_type == "word-matrix input":
+        return
     # no gradient needed, uses a large batchsize to speed up the process
     dataloader = Data.DataLoader(
         Data.TensorDataset(g_input_ids,
@@ -205,35 +45,29 @@ def update_feature():
                 input_ids=input_ids, attention_mask=attention_mask)[0][:, 0]
             cls_list.append(output.cpu())
         cls_feat = th.cat(cls_list, axis=0)
-    take_to(cpu)
     g_cls_feats = cls_feat
+    take_to(cpu)
     return g_cls_feats
 
 
-optimizer = th.optim.Adam([
-    {'params': model.bert_model.parameters(), 'lr': v.bert_lr},
-    {'params': model.classifier.parameters(), 'lr': v.bert_lr},
-    {'params': model.gcn.parameters(), 'lr': v.gcn_lr},
-], lr=1e-3, weight_decay=v.weight_decay
-)
-scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
+# Configure
+WORK_DIR = Path(__file__).parent
+v, ckpt_dir, config, sh, fh, logger, cpu, gpu = configure(WORK_DIR)
 
-train_mask_int = th.FloatTensor(train_mask)
+#logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
 
 
 def train_step(engine, batch):
-    global model, optimizer, g_input_ids, g_attention_mask, NF, FN, g_cls_feats, g_label_train, g_train
+    global model, optimizer, g_input_ids, g_attention_mask, g_cls_feats, g_label_train, g_train
     model.train()
     model = model.to(gpu)
     take_to(gpu)
     optimizer.zero_grad()
     (idx, ) = [x.to(gpu) for x in batch]
     optimizer.zero_grad()
-    # ya bu train mask çok saçma zaten elimizde var neden gerek duyulmuş bir daha anlamadım
-    # çok da bir şey değişmiyor sanki global olarak erişebiliriz
     train_mask = g_train[idx].type(th.BoolTensor)
     y_pred = model(g_input_ids,
-                   g_attention_mask, g_cls_feats, NF, FN, idx)[train_mask]
+                   g_attention_mask, g_cls_feats, idx)[train_mask]
 
     y_true = g_label_train[idx][train_mask]
     loss = F.nll_loss(y_pred, y_true)
@@ -262,7 +96,7 @@ def reset_graph(trainer):
 
 
 def test_step(engine, batch):
-    global model, optimizer, g_input_ids, g_attention_mask, NF, FN, g_cls_feats
+    global model, optimizer, g_input_ids, g_attention_mask, g_cls_feats
     with th.no_grad():
         model.eval()
         model = model.to(gpu)
@@ -270,7 +104,7 @@ def test_step(engine, batch):
 
         (idx, ) = [x.to(gpu) for x in batch]
         y_pred = model(g_input_ids,
-                       g_attention_mask, g_cls_feats, NF, FN, idx)
+                       g_attention_mask, g_cls_feats, idx)
         y_true = g_label[idx]
         return y_pred, y_true
 
@@ -301,25 +135,64 @@ def log_training_results(trainer):
     )
     if val_acc > log_training_results.best_val_acc:
         logger.info("New checkpoint")
-        th.save(
-            {
-                'bert_model': model.bert_model.state_dict(),
-                'classifier': model.classifier.state_dict(),
-                'gcn': model.gcn.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': trainer.state.epoch,
-            },
-            os.path.join(
-                ckpt_dir, 'checkpoint.pth'
+        if v.train_bert_w_gcn == 'no':
+            th.save(
+                {
+                    'classifier': model.classifier.state_dict(),
+                    'gcn': model.gcn.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'epoch': trainer.state.epoch,
+                },
+                os.path.join(
+                    ckpt_dir, 'checkpoint.pth'
+                )
             )
-        )
+        else:
+            th.save(
+                {
+                    'bert_model': model.bert_model.state_dict(),
+                    'classifier': model.classifier.state_dict(),
+                    'gcn': model.gcn.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'epoch': trainer.state.epoch,
+                },
+                os.path.join(
+                    ckpt_dir, 'checkpoint.pth'
+                )
+            )
         log_training_results.best_val_acc = val_acc
 
 
-log_training_results.best_val_acc = 0
-g_cls_feats = update_feature()
-
 # %%
-trainer.run(idx_loader, max_epochs=v.nb_epochs)
+all_paths = ["FF-NF", "FN-NF", "NN-NN", "NF-NN", "NF-FN-NF"]
 
-# %%
+"""
+Here we create everything froms scratch, this can be partioned to just change
+"""
+for path in all_paths:
+    v.gcn_path = path
+    model, optimizer, A_s, input_type, train_mask, g_label, g_train, g_val, g_test, g_label_train, g_input_ids, g_attention_mask, idx_loader_train, idx_loader_val, idx_loader_test, idx_loader = set_variables(
+        v, gpu, config)
+    # exec(open("build_graph.py").read())
+    print("GCN PATH IS:", str(v.gcn_path))
+    if v.fine_tune_bert == 'yes':
+        print("girdim?")
+        exec(open("finetune_bert.py").read())
+
+    if input_type == "document-matrix input":
+        print("We have input matrix: n_doc x 768")
+        g_cls_feats = update_feature()
+    else:
+        print("We have input matrix: n_vocab x n_vocab")
+        g_cls_feats = th.eye(A_s[0].shape[1]).to(gpu)
+
+    if v.train_bert_w_gcn == "no":
+        model.train_bert_w_gcn = False
+        for param in model.bert_model.parameters():
+            param.requires_grad = False
+    else:
+        model.train_bert_w_gcn = True
+
+    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
+    log_training_results.best_val_acc = 0
+    trainer.run(idx_loader, max_epochs=v.nb_epochs)

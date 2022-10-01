@@ -4,7 +4,6 @@ from model import BertClassifier  # bu olay nedir ya
 from torch.optim import lr_scheduler
 import logging
 import shutil
-import argparse
 from sklearn.metrics import accuracy_score
 import numpy as np
 from ignite.metrics import Accuracy, Loss
@@ -15,21 +14,16 @@ import torch.nn.functional as F
 from utils import *
 import os
 from types import SimpleNamespace
-
 import json
-'''
-    We use parser to get input from command line, since all optional if not given any input it will
-    use the default values
-    ex: python --max_length 128 --batch_size 32
-'''
 
+
+print("finetune_bert.py is executed")
 WORK_DIR = Path(__file__).parent
 CONFIG_PATH = Path.joinpath(
-    WORK_DIR, "configs/config_train_bert_hete_gcn.json")
+    WORK_DIR, "configs/config_file.json")
 config = load_config_json(CONFIG_PATH)
 
 v = SimpleNamespace(**config)  # store v in config
-
 
 if v.pretrained_bert_ckpt == "":
     ckpt_dir = 'checkpoint/{}_{}'.format(v.bert_init, v.dataset)
@@ -41,9 +35,9 @@ config["pretrained_bert_ckpt"] = ckpt_dir
 json_object = json.dumps(config, indent=4)
 
 # Writing to sample.json
-with open("configs/config_train_bert_hete_gcn.json", "w") as outfile:
+with open("configs/config_file.json", "w") as outfile:
     outfile.write(json_object)
-
+# %%
 # Create directory and make copy of original file to that director
 os.makedirs(ckpt_dir, exist_ok=True)
 shutil.copy(os.path.basename(__file__), ckpt_dir)
@@ -64,18 +58,12 @@ logger.setLevel(logging.INFO)
 cpu = th.device('cpu')
 gpu = th.device('cuda:0')
 
-logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
-
-# Data Preprocess
-
-
-cpu = th.device('cpu')
-gpu = th.device('cuda:0')
+#logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
 
 '''
     Data Preprocess 
 '''
-adj, adj_pmi, adj_tfidf, adj_nf, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
+adj, adj_pmi, adj_tfidf, adj_nf, adj_ff, features, y_train, y_val, y_test, train_mask, val_mask, test_mask, train_size, test_size = load_corpus(
     v.dataset)
 
 # Get train,test,val sizes

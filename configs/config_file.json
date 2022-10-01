@@ -7,11 +7,17 @@
     "pretrained_bert_ckpt": "",
     "dataset": "mr",
     "checkpoint_dir": "",
-    "n_hidden": 200,
+    "n_hidden": [
+        200
+    ],
     "bert_lr": 1e-05,
     "gcn_lr": 0.001,
     "gcn_model": "bert_hete-gcn",
     "dropout": 0.5,
     "weight_decay": 0.0005,
-    "use_concat": "no"
+    "use_concat": "no",
+    "train_bert_w_gcn": "no",
+    "gcn_path": "FF-NF",
+    "fine_tune_bert": "no",
+    "train_all_paths": "yes"
 }

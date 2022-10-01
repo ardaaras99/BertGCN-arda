@@ -24,7 +24,11 @@ class GraphConvolution(Module):
 
     def reset_parameters(self):
         stdv = 1. / math.sqrt(self.weight.size(1))
-        self.weight.data.uniform_(-stdv, stdv)
+        #self.weight.data.uniform_(-stdv, stdv)
+
+        torch.nn.init.xavier_uniform_(
+            self.weight,
+            gain=torch.nn.init.calculate_gain("linear"))
         if self.bias is not None:
             self.bias.data.uniform_(-stdv, stdv)
 

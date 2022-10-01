@@ -4,14 +4,11 @@ from re import S
 import numpy as np
 import pickle as pkl
 import scipy.sparse as sp
-import sys
 from math import log
 
 import numpy as np
 import pickle as pkl
-import networkx as nx
 import scipy.sparse as sp
-from scipy.sparse.linalg import eigsh
 
 from types import SimpleNamespace
 from pathlib import Path
@@ -24,6 +21,7 @@ from utils import *
                     instance id, train or test identification and
                     label
 '''
+print("build graph file executed")
 WORK_DIR = Path(__file__).parent
 CONFIG_PATH = Path.joinpath(
     WORK_DIR, "configs/config_train_bert_hete_gcn.json")
@@ -421,6 +419,8 @@ row, col, weight = [], [], []  # to have them in single graph
 weight_tfidf, weight_pmi = [], []
 
 row_nf, col_nf, weight_nf = [], [], []
+row_ff, col_ff, weight_ff = [], [], []
+
 '''
     We calculate PMI score with word_pair_count & word_window_freq
     note that adjacency matrix has documents first then words, so in original
@@ -443,10 +443,13 @@ for key in word_pair_count:
     # for big Adjacency
     row.append(train_size + i)
     col.append(train_size + j)
+
+    row_ff.append(i), col_ff.append(j)
+
     weight.append(pmi)
     weight_pmi.append(pmi)
     weight_tfidf.append(1e-8)
-
+    weight_ff.append(pmi)
 # TF-IDF matrix
 doc_word_freq = {}
 
@@ -509,6 +512,7 @@ def check_symmetric(a, rtol=1e-05, atol=1e-08):
     Creating sparse matrices from row,col and weights
 '''
 
+
 adj = sp.csr_matrix(
     (weight, (row, col)), shape=(node_size, node_size))
 
@@ -520,6 +524,9 @@ adj_tfidf = sp.csr_matrix(
 
 adj_nf = sp.csr_matrix(
     (weight_nf, (row_nf, col_nf)), shape=(train_size+test_size, vocab_size))
+
+adj_ff = sp.csr_matrix(
+    (weight_ff, (row_ff, col_ff)), shape=(vocab_size, vocab_size))
 '''
     After creating sparse matrices, we dump them to pickle objects
 '''
@@ -533,7 +540,7 @@ def dump_obj(obj, obj_name, dataset):
 
 
 objs = [(x, 'x'), (y, 'y'), (tx, 'tx'), (ty, 'ty'), (allx, 'allx'), (ally, 'ally'), (adj, 'adj'),
-        (adj_pmi, 'adj_pmi'), (adj_tfidf, 'adj_tfidf'), (adj_nf, 'adj_nf')]
+        (adj_pmi, 'adj_pmi'), (adj_tfidf, 'adj_tfidf'), (adj_nf, 'adj_nf'), (adj_ff, 'adj_ff')]
 
 for obj_tuple in objs:
     obj, obj_name = obj_tuple

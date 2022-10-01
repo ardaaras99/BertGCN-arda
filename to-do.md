@@ -10,3 +10,7 @@
 - outputu concatlama fikri de güzel olabilir (bunları mod yapabilirsin config içine koyarsın)
 - ensemble modeller için biraz fikir edinebilirsin
 - data augmentation yapmak hile olur mu? (muhtemelen)
+
+# Training Procedure
+
+- First finetune BERT on data, then do not train with the model to fasten procedure.
