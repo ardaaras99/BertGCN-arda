@@ -24,7 +24,7 @@ from utils import *
 print("build graph file executed")
 WORK_DIR = Path(__file__).parent
 CONFIG_PATH = Path.joinpath(
-    WORK_DIR, "configs/config_train_bert_hete_gcn.json")
+    WORK_DIR, "configs/config_file.json")
 config = load_config_json(CONFIG_PATH)
 
 v = SimpleNamespace(**config)  # store v in config
