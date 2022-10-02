@@ -1,11 +1,9 @@
 # %%
-from transformers import AutoModel, AutoTokenizer
-from model import BertClassifier  # bu olay nedir ya
+from model import BertClassifier
 from torch.optim import lr_scheduler
 import logging
 import shutil
 from sklearn.metrics import accuracy_score
-import numpy as np
 from ignite.metrics import Accuracy, Loss
 from ignite.engine import Events, create_supervised_evaluator, create_supervised_trainer, Engine
 import torch.utils.data as Data
@@ -15,9 +13,9 @@ from utils import *
 import os
 from types import SimpleNamespace
 import json
+from transformers import logging as lg
 
-
-print("finetune_bert.py is executed")
+lg.set_verbosity_error()
 WORK_DIR = Path(__file__).parent
 CONFIG_PATH = Path.joinpath(
     WORK_DIR, "configs/config_file.json")
@@ -25,18 +23,20 @@ config = load_config_json(CONFIG_PATH)
 
 v = SimpleNamespace(**config)  # store v in config
 
+# We decide ckpt_dir here
 if v.pretrained_bert_ckpt == "":
     ckpt_dir = 'checkpoint/{}_{}'.format(v.bert_init, v.dataset)
+    config["pretrained_bert_ckpt"] = ckpt_dir
+    # Serializing json
+    json_object = json.dumps(config, indent=4)
+    already_trained_flag = False
+    # Writing to sample.json
+    with open("configs/config_file.json", "w") as outfile:
+        outfile.write(json_object)
 else:
     ckpt_dir = v.pretrained_bert_ckpt
+    already_trained_flag = True
 
-config["pretrained_bert_ckpt"] = ckpt_dir
-# Serializing json
-json_object = json.dumps(config, indent=4)
-
-# Writing to sample.json
-with open("configs/config_file.json", "w") as outfile:
-    outfile.write(json_object)
 # %%
 # Create directory and make copy of original file to that director
 os.makedirs(ckpt_dir, exist_ok=True)
@@ -74,6 +74,15 @@ nb_class = y_train.shape[1]
 
 # Define model
 model = BertClassifier(pretrained_model=v.bert_init, nb_class=nb_class)
+
+if already_trained_flag:
+    print("BERT is already pre-trained, we continue on it")
+    ckpt = th.load(os.path.join(
+        v.pretrained_bert_ckpt, 'checkpoint.pth'
+    ), map_location=gpu)
+    model.bert_model.load_state_dict(ckpt['bert_model'])
+    model.classifier.load_state_dict(ckpt['classifier'])
+
 '''
     y -> nb_node array (also includes words inside of it)
     label -> dictionary that stores labels of each dataset 
@@ -89,10 +98,6 @@ with open(corpus_file, 'r') as f:
     text = f.read()
     text = text.replace('\\', '')
     text = text.split('\n')
-
-'''
-    for BERT we give input as string, it will tokenize it for us
-'''
 
 
 def encode_input(text, tokenizer):
@@ -189,7 +194,7 @@ def log_training_results(trainer):
         .format(trainer.state.epoch, train_acc, train_nll, val_acc, val_nll, test_acc, test_nll)
     )
     if val_acc > log_training_results.best_val_acc:
-        logger.info("New checkpoint")
+        #logger.info("New checkpoint")
         th.save(
             {
                 'bert_model': model.bert_model.state_dict(),
@@ -207,5 +212,3 @@ def log_training_results(trainer):
 
 log_training_results.best_val_acc = 0
 trainer.run(loader['train'], max_epochs=v.nb_epochs)
-
-# %%

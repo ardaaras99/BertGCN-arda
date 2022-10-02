@@ -44,18 +44,18 @@ class BertGCN_sparse_concat(th.nn.Module):
                                  n_hidden2=self.n_hidden2,
                                  dropout=dropout)
 
-    def forward(self, g_input_ids, g_attention_mask, g_cls_feats, idx):
+    def forward(self, g_input_ids, g_attention_mask, bert_output, idx):
 
         input_ids, attention_mask = g_input_ids[idx], g_attention_mask[idx]
         if self.training:
             cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]
-            g_cls_feats[idx] = cls_feats
+            bert_output[idx] = cls_feats
         else:
-            cls_feats = g_cls_feats[idx]
+            cls_feats = bert_output[idx]
 
         cls_out = self.classifier(cls_feats)
 
-        x = g_cls_feats
+        x = bert_output
         x = x.cuda()
         gcn_out = self.gcn(x, self.A_s)[idx]
         out_concat = th.concat((gcn_out, cls_feats), 1)
@@ -70,10 +70,9 @@ class BertGCN_sparse_concat(th.nn.Module):
 
 
 class BertGCN_sparse(th.nn.Module):
-    def __init__(self, input_type, nfeat, pretrained_model='roberta_base', nb_class=20, m=0.7, n_hidden=[200], dropout=0.5, A_s=None):
+    def __init__(self, input_type, nfeat, pretrained_model='roberta_base', nb_class=20, m=0.7, n_hidden=[200], dropout=0.5, A_s=None, train_bert_w_gcn="yes"):
         super(BertGCN_sparse, self).__init__()
         self.nfeat = nfeat
-        self.m = m
         self.nb_class = nb_class
         self.input_type = input_type
         self.n_hidden = n_hidden
@@ -83,33 +82,38 @@ class BertGCN_sparse(th.nn.Module):
         self.classifier = th.nn.Linear(self.feat_dim, nb_class)
         # new ones
         self.A_s = A_s
+        self.train_bert_w_gcn = train_bert_w_gcn
+        self.m = th.nn.Parameter(th.ones(1) * 0.5)
         self.gcn = GCN_scratch(A_s=self.A_s,
                                nfeat=self.nfeat,
                                n_hidden=self.n_hidden,
                                nclass=nb_class,
                                dropout=dropout)
 
-    """
-    g_cls_feats can be n_doc x 768 or n_word x n_word (I matrix)
-    """
-
-    def forward(self, g_input_ids, g_attention_mask, g_cls_feats, idx):
+    def forward(self, g_input_ids, g_attention_mask, bert_output, gcn_input, idx):
 
         input_ids, attention_mask = g_input_ids[idx], g_attention_mask[idx]
+
         if self.input_type == "document-matrix input":
-            if self.training:
-                cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]
-                g_cls_feats[idx] = cls_feats
+
+            if self.train_bert_w_gcn == "yes":
+                if self.training:
+                    cls_feats = self.bert_model(
+                        input_ids, attention_mask)[0][:, 0]
+                    gcn_input[idx] = cls_feats
+                else:
+                    cls_feats = bert_output[idx]
             else:
-                cls_feats = g_cls_feats[idx]
-        else:
-            cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]
+                cls_feats = bert_output[idx]
+
+        elif self.input_type == "word-matrix input":
+            # cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]
+            cls_feats = bert_output[idx]
 
         cls_logit = self.classifier(cls_feats)
         cls_pred = th.nn.Softmax(dim=1)(cls_logit)
 
-        x = g_cls_feats.cuda()
-        gcn_logit = self.gcn(x)
+        gcn_logit = self.gcn(gcn_input.cuda())
         gcn_pred = th.nn.Softmax(dim=1)(gcn_logit[idx])
 
         pred = (gcn_pred+1e-10) * self.m + cls_pred * (1 - self.m)

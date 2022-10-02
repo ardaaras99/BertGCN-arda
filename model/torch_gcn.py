@@ -16,7 +16,6 @@ class GCN_scratch(nn.Module):
     def __init__(self, A_s, nfeat, n_hidden, nclass, dropout):
         super(GCN_scratch, self).__init__()
         self.A_s = A_s
-        self.layer_no = len(self.A_s)
         self.n_hidden = n_hidden
         self.gcn_layers = nn.ModuleList()
         self.dropout = dropout

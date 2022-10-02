@@ -13,7 +13,7 @@ from sklearn.neighbors import kneighbors_graph
 lg.set_verbosity_error()
 
 
-def configure(WORK_DIR):
+def configure(WORK_DIR, cur_dir):
     CONFIG_PATH = Path.joinpath(
         WORK_DIR, "configs/config_file.json")
     config = load_config_json(CONFIG_PATH)
@@ -24,6 +24,9 @@ def configure(WORK_DIR):
             v.bert_init, v.gcn_model, v.dataset)
     else:
         ckpt_dir = v.checkpoint_dir
+
+    os.makedirs(ckpt_dir, exist_ok=True)
+    shutil.copy(cur_dir, ckpt_dir)
 
     # buraya gerek var mı tunaya sor
     sh = logging.StreamHandler(sys.stdout)
@@ -68,26 +71,29 @@ def set_variables(v, gpu, config):
     # nfeat is not always 768 we need to check it depending on input type
     if v.use_concat == "yes":
         model = BertGCN_sparse_concat(nfeat=nfeat, nb_class=nb_class, pretrained_model=v.bert_init, m=v.m,
-                                      n_hidden=v.n_hidden, dropout=v.dropout, A_s=A_s)
+                                      n_hidden=v.n_hidden, dropout=v.dropout, A_s=A_s, train_bert_w_gcn=v.train_bert_w_gcn)
     else:
-        model = BertGCN_sparse(input_type, nfeat=nfeat, nb_class=nb_class, pretrained_model=v.bert_init, m=v.m,
-                               n_hidden=v.n_hidden, dropout=v.dropout, A_s=A_s)
+        model = BertGCN_sparse(input_type=input_type, nfeat=nfeat, nb_class=nb_class, pretrained_model=v.bert_init, m=v.m,
+                               n_hidden=v.n_hidden, dropout=v.dropout, A_s=A_s, train_bert_w_gcn=v.train_bert_w_gcn)
 
     if v.pretrained_bert_ckpt != "":
-        print("We use pretrained model")
+        print("We use finetuned BERT model")
         ckpt = th.load(os.path.join(
             v.pretrained_bert_ckpt, 'checkpoint.pth'
         ), map_location=gpu)
         model.bert_model.load_state_dict(ckpt['bert_model'])
         model.classifier.load_state_dict(ckpt['classifier'])
 
-    config["pretrained_bert_ckpt"] = ""
-    # Serializing json
-    json_object = json.dumps(config, indent=4)
+    """
+    burda pretrained ckpt silme işlemi var gerek olmayabilir
+    """
+    # config["pretrained_bert_ckpt"] = ""
+    # # Serializing json
+    # json_object = json.dumps(config, indent=4)
 
-    # Writing to sample.json
-    with open("configs/config_file.json", "w") as outfile:
-        outfile.write(json_object)
+    # # Writing to sample.json
+    # with open("configs/config_file.json", "w") as outfile:
+    #     outfile.write(json_object)
 
     # load documents and compute input encodings
     corpse_file = './data/corpus/' + v.dataset + '_shuffle.txt'
@@ -152,8 +158,9 @@ def set_variables(v, gpu, config):
     optimizer = th.optim.Adam([
         {'params': model.bert_model.parameters(), 'lr': v.bert_lr},
         {'params': model.classifier.parameters(), 'lr': v.bert_lr},
-        {'params': model.gcn.parameters(), 'lr': v.gcn_lr},
-    ], lr=1e-3, weight_decay=v.weight_decay
+        {'params': model.gcn.parameters(), 'lr': 1e-2},
+        {'params': model.m, 'lr': v.gcn_lr}
+    ], lr=1e-5, weight_decay=v.weight_decay
     )
 
     return model, optimizer, A_s, input_type, train_mask, g_label, g_train, g_val, g_test, g_label_train, g_input_ids, g_attention_mask, idx_loader_train, idx_loader_val, idx_loader_test, idx_loader

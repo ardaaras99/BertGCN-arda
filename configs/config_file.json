@@ -1,10 +1,10 @@
 {
-    "nb_epochs": 2,
+    "nb_epochs": 10,
     "max_length": 10,
     "batch_size": 256,
     "m": 0.42,
     "bert_init": "roberta-base",
-    "pretrained_bert_ckpt": "",
+    "pretrained_bert_ckpt": "checkpoint/roberta-base_mr",
     "dataset": "mr",
     "checkpoint_dir": "",
     "n_hidden": [
@@ -18,6 +18,6 @@
     "use_concat": "no",
     "train_bert_w_gcn": "no",
     "gcn_path": "FF-NF",
-    "fine_tune_bert": "no",
+    "fine_tune_bert": "yes",
     "train_all_paths": "yes"
 }

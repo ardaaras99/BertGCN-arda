@@ -1,5 +1,4 @@
 # %%
-from transformers import logging
 from pathlib import Path
 from torch.optim import lr_scheduler
 from sklearn.metrics import accuracy_score
@@ -14,21 +13,20 @@ import os
 
 
 def take_to(x):
-    global g_label, g_train, g_val, g_test, g_label_train, g_cls_feats, g_input_ids, g_attention_mask
+    global g_label, g_train, g_val, g_test, g_label_train, bert_output, gcn_input, g_input_ids, g_attention_mask
     g_label = g_label.to(x)
     g_train = g_train.to(x)
     g_val = g_val.to(x)
     g_test = g_test.to(x)
     g_label_train = g_label_train.to(x)
-    g_cls_feats = g_cls_feats.to(x)
+    bert_output = bert_output.to(x)
+    gcn_input = gcn_input.to(x)
     g_input_ids = g_input_ids.to(x)
     g_attention_mask = g_attention_mask.to(x)
 
 
 def update_feature():
-    global model, g_cls_feats, g_input_ids, g_attention_mask, input_type
-    if input_type == "word-matrix input":
-        return
+    global model, bert_output, g_input_ids, g_attention_mask
     # no gradient needed, uses a large batchsize to speed up the process
     dataloader = Data.DataLoader(
         Data.TensorDataset(g_input_ids,
@@ -45,20 +43,21 @@ def update_feature():
                 input_ids=input_ids, attention_mask=attention_mask)[0][:, 0]
             cls_list.append(output.cpu())
         cls_feat = th.cat(cls_list, axis=0)
-    g_cls_feats = cls_feat
-    take_to(cpu)
-    return g_cls_feats
+    bert_output = cls_feat
+    # take_to(cpu)
+    return bert_output
 
 
 # Configure
 WORK_DIR = Path(__file__).parent
-v, ckpt_dir, config, sh, fh, logger, cpu, gpu = configure(WORK_DIR)
+cur_dir = os.path.basename(__file__)
+v, ckpt_dir, config, sh, fh, logger, cpu, gpu = configure(WORK_DIR, cur_dir)
 
 #logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
 
 
 def train_step(engine, batch):
-    global model, optimizer, g_input_ids, g_attention_mask, g_cls_feats, g_label_train, g_train
+    global model, optimizer, g_input_ids, g_attention_mask, bert_output, gcn_input, g_label_train, g_train
     model.train()
     model = model.to(gpu)
     take_to(gpu)
@@ -67,13 +66,13 @@ def train_step(engine, batch):
     optimizer.zero_grad()
     train_mask = g_train[idx].type(th.BoolTensor)
     y_pred = model(g_input_ids,
-                   g_attention_mask, g_cls_feats, idx)[train_mask]
+                   g_attention_mask, bert_output, gcn_input, idx)[train_mask]
 
     y_true = g_label_train[idx][train_mask]
     loss = F.nll_loss(y_pred, y_true)
     loss.backward()
     optimizer.step()
-    g_cls_feats.detach_()
+    bert_output.detach_()
     train_loss = loss.item()
     with th.no_grad():
         if train_mask.sum() > 0:
@@ -91,12 +90,13 @@ trainer = Engine(train_step)
 @trainer.on(Events.EPOCH_COMPLETED)
 def reset_graph(trainer):
     scheduler.step()
-    update_feature()
+    if v.train_bert_w_gcn:
+        update_feature()
     th.cuda.empty_cache()
 
 
 def test_step(engine, batch):
-    global model, optimizer, g_input_ids, g_attention_mask, g_cls_feats
+    global model, optimizer, g_input_ids, g_attention_mask, bert_output, gcn_input
     with th.no_grad():
         model.eval()
         model = model.to(gpu)
@@ -104,7 +104,7 @@ def test_step(engine, batch):
 
         (idx, ) = [x.to(gpu) for x in batch]
         y_pred = model(g_input_ids,
-                       g_attention_mask, g_cls_feats, idx)
+                       g_attention_mask, bert_output, gcn_input, idx)
         y_true = g_label[idx]
         return y_pred, y_true
 
@@ -134,11 +134,10 @@ def log_training_results(trainer):
         .format(trainer.state.epoch, train_acc*100, train_nll, val_acc*100, val_nll, test_acc*100, test_nll)
     )
     if val_acc > log_training_results.best_val_acc:
-        logger.info("New checkpoint")
+        #logger.info("New checkpoint")
         if v.train_bert_w_gcn == 'no':
             th.save(
                 {
-                    'classifier': model.classifier.state_dict(),
                     'gcn': model.gcn.state_dict(),
                     'optimizer': optimizer.state_dict(),
                     'epoch': trainer.state.epoch,
@@ -164,31 +163,49 @@ def log_training_results(trainer):
 
 
 # %%
+# Trial Section
+
+# What to try: BERT TRAİNLENMEYECEKSE BİR KERE KAYDET VE SÜREKLİ KULLAN, her batch runlamaya gerek yok
+# v.gcn_path = "FN-NF"
+# model, optimizer, A_s, input_type, train_mask, g_label, g_train, g_val, g_test, g_label_train, g_input_ids, g_attention_mask, idx_loader_train, idx_loader_val, idx_loader_test, idx_loader = set_variables(
+#     v, gpu, config)
+# if input_type == "document-matrix input":
+#     print("We have input matrix: n_doc x 768")
+#     bert_output = update_feature()
+#     take_to(gpu)
+# cls_logit = model.classifier(bert_output)
+# cls_pred = th.nn.Softmax(dim=1)(cls_logit)
+
+# %%
 all_paths = ["FF-NF", "FN-NF", "NN-NN", "NF-NN", "NF-FN-NF"]
 
-"""
-Here we create everything froms scratch, this can be partioned to just change
-"""
+# if v.fine_tune_bert == 'yes':
+#     exec(open("finetune_bert.py").read())
+
 for path in all_paths:
     v.gcn_path = path
+    if v.gcn_path == "NF-FN-NF":
+        v.n_hidden = [200, 100]
+    else:
+        v.n_hidden = [200]
+    print("\nGCN PATH IS:", str(v.gcn_path))
     model, optimizer, A_s, input_type, train_mask, g_label, g_train, g_val, g_test, g_label_train, g_input_ids, g_attention_mask, idx_loader_train, idx_loader_val, idx_loader_test, idx_loader = set_variables(
         v, gpu, config)
     # exec(open("build_graph.py").read())
-    print("GCN PATH IS:", str(v.gcn_path))
-    if v.fine_tune_bert == 'yes':
-        print("girdim?")
-        exec(open("finetune_bert.py").read())
+    bert_output = update_feature()
 
     if input_type == "document-matrix input":
         print("We have input matrix: n_doc x 768")
-        g_cls_feats = update_feature()
+        gcn_input = bert_output
     else:
         print("We have input matrix: n_vocab x n_vocab")
-        g_cls_feats = th.eye(A_s[0].shape[1]).to(gpu)
+        gcn_input = th.eye(A_s[0].shape[1]).to(gpu)
 
     if v.train_bert_w_gcn == "no":
         model.train_bert_w_gcn = False
         for param in model.bert_model.parameters():
+            param.requires_grad = False
+        for param in model.classifier.parameters():
             param.requires_grad = False
     else:
         model.train_bert_w_gcn = True
@@ -196,3 +213,4 @@ for path in all_paths:
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
     log_training_results.best_val_acc = 0
     trainer.run(idx_loader, max_epochs=v.nb_epochs)
+    print("Interpolation constant found to be:", str(model.m))
