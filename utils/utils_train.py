@@ -158,8 +158,7 @@ def set_variables(v, gpu, config):
     optimizer = th.optim.Adam([
         {'params': model.bert_model.parameters(), 'lr': v.bert_lr},
         {'params': model.classifier.parameters(), 'lr': v.bert_lr},
-        {'params': model.gcn.parameters(), 'lr': 1e-2},
-        {'params': model.m, 'lr': v.gcn_lr}
+        {'params': model.gcn.parameters(), 'lr': v.gcn_lr}
     ], lr=1e-5, weight_decay=v.weight_decay
     )
 

@@ -178,7 +178,7 @@ def log_training_results(trainer):
 
 # %%
 all_paths = ["FF-NF", "FN-NF", "NN-NN", "NF-NN", "NF-FN-NF"]
-
+all_paths = ["FN-NF"]
 # if v.fine_tune_bert == 'yes':
 #     exec(open("finetune_bert.py").read())
 
@@ -192,8 +192,18 @@ for path in all_paths:
     model, optimizer, A_s, input_type, train_mask, g_label, g_train, g_val, g_test, g_label_train, g_input_ids, g_attention_mask, idx_loader_train, idx_loader_val, idx_loader_test, idx_loader = set_variables(
         v, gpu, config)
     # exec(open("build_graph.py").read())
-    bert_output = update_feature()
+    bert_output_original = update_feature()
 
+    # Normalizing BERT output?
+    # A = th.clone(bert_output_original)
+    # A -= A.min()
+    # A /= A.max()
+    bert_output = bert_output_original
+
+    A1, A2, A3 = A_s
+    A1 = bert_output.T
+    A2 = bert_output
+    A_s = (A1, A2, A3)
     if input_type == "document-matrix input":
         print("We have input matrix: n_doc x 768")
         gcn_input = bert_output
