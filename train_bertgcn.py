@@ -26,7 +26,7 @@ def take_to(x):
 
 
 def update_feature():
-    global model, bert_output, g_input_ids, g_attention_mask
+    global model, bert_output, g_input_ids, A_s, g_attention_mask
     # no gradient needed, uses a large batchsize to speed up the process
     dataloader = Data.DataLoader(
         Data.TensorDataset(g_input_ids,
@@ -44,6 +44,11 @@ def update_feature():
             cls_list.append(output.cpu())
         cls_feat = th.cat(cls_list, axis=0)
     bert_output = cls_feat
+    A1, A2, A3 = A_s
+    A1 = bert_output.T
+    A2 = bert_output
+    A_s = (A1, A2, A3)
+    model.A_s = A_s
     # take_to(cpu)
     return bert_output
 
@@ -120,6 +125,7 @@ for n, f in metrics.items():
 
 @trainer.on(Events.EPOCH_COMPLETED)
 def log_training_results(trainer):
+    global acc_sum
     evaluator.run(idx_loader_train)
     metrics = evaluator.state.metrics
     train_acc, train_nll = metrics["acc"], metrics["nll"]
@@ -205,6 +211,7 @@ for path in all_paths:
     A1 = bert_output.T
     A2 = bert_output
     A_s = (A1, A2, A3)
+    model.A_s = A_s
     if input_type == "document-matrix input":
         print("We have input matrix: n_doc x 768")
         gcn_input = bert_output
