@@ -52,7 +52,7 @@ def update_feature():
 WORK_DIR = Path(__file__).parent
 cur_dir = os.path.basename(__file__)
 v, ckpt_dir, config, sh, fh, logger, cpu, gpu = configure(WORK_DIR, cur_dir)
-
+acc_sum = 0
 #logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
 
 
@@ -129,6 +129,7 @@ def log_training_results(trainer):
     evaluator.run(idx_loader_test)
     metrics = evaluator.state.metrics
     test_acc, test_nll = metrics["acc"], metrics["nll"]
+    acc_sum = acc_sum + test_acc
     logger.info(
         "Epoch: {}  Train acc: {:.4f} loss: {:.4f}  Val acc: {:.4f} loss: {:.4f}  Test acc: {:.4f} loss: {:.4f}"
         .format(trainer.state.epoch, train_acc*100, train_nll, val_acc*100, val_nll, test_acc*100, test_nll)
@@ -224,3 +225,4 @@ for path in all_paths:
     log_training_results.best_val_acc = 0
     trainer.run(idx_loader, max_epochs=v.nb_epochs)
     print("Interpolation constant found to be:", str(model.m))
+    print("Average acc is: " + str(acc_sum / v.nb_epochs))
