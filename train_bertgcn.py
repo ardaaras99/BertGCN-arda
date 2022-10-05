@@ -1,4 +1,5 @@
 # %%
+import copy
 from pathlib import Path
 from torch.optim import lr_scheduler
 from sklearn.metrics import accuracy_score
@@ -26,7 +27,7 @@ def take_to(x):
 
 
 def update_feature():
-    global model, bert_output, g_input_ids, A_s, g_attention_mask
+    global model, bert_output, g_input_ids, g_attention_mask
     # no gradient needed, uses a large batchsize to speed up the process
     dataloader = Data.DataLoader(
         Data.TensorDataset(g_input_ids,
@@ -44,11 +45,6 @@ def update_feature():
             cls_list.append(output.cpu())
         cls_feat = th.cat(cls_list, axis=0)
     bert_output = cls_feat
-    A1, A2, A3 = A_s
-    A1 = bert_output.T
-    A2 = bert_output
-    A_s = (A1, A2, A3)
-    model.A_s = A_s
     # take_to(cpu)
     return bert_output
 
@@ -57,7 +53,6 @@ def update_feature():
 WORK_DIR = Path(__file__).parent
 cur_dir = os.path.basename(__file__)
 v, ckpt_dir, config, sh, fh, logger, cpu, gpu = configure(WORK_DIR, cur_dir)
-acc_sum = 0
 #logger.info('checkpoints will be saved in {}'.format(ckpt_dir))
 
 
@@ -77,7 +72,8 @@ def train_step(engine, batch):
     loss = F.nll_loss(y_pred, y_true)
     loss.backward()
     optimizer.step()
-    bert_output.detach_()
+    bert_output.detach_()  # bu detach neymiş bir bak önemli bir abiye benziyor
+    gcn_input.detach_()
     train_loss = loss.item()
     with th.no_grad():
         if train_mask.sum() > 0:
@@ -94,9 +90,10 @@ trainer = Engine(train_step)
 
 @trainer.on(Events.EPOCH_COMPLETED)
 def reset_graph(trainer):
+    global gcn_input
+    print(gcn_input[0])
     scheduler.step()
-    if v.train_bert_w_gcn:
-        update_feature()
+    update_feature()
     th.cuda.empty_cache()
 
 
@@ -121,6 +118,8 @@ metrics = {
 }
 for n, f in metrics.items():
     f.attach(evaluator, n)
+
+acc_sum = 0
 
 
 @trainer.on(Events.EPOCH_COMPLETED)
@@ -170,25 +169,8 @@ def log_training_results(trainer):
 
 
 # %%
-# Trial Section
-
-# What to try: BERT TRAİNLENMEYECEKSE BİR KERE KAYDET VE SÜREKLİ KULLAN, her batch runlamaya gerek yok
-# v.gcn_path = "FN-NF"
-# model, optimizer, A_s, input_type, train_mask, g_label, g_train, g_val, g_test, g_label_train, g_input_ids, g_attention_mask, idx_loader_train, idx_loader_val, idx_loader_test, idx_loader = set_variables(
-#     v, gpu, config)
-# if input_type == "document-matrix input":
-#     print("We have input matrix: n_doc x 768")
-#     bert_output = update_feature()
-#     take_to(gpu)
-# cls_logit = model.classifier(bert_output)
-# cls_pred = th.nn.Softmax(dim=1)(cls_logit)
-
-# %%
 all_paths = ["FF-NF", "FN-NF", "NN-NN", "NF-NN", "NF-FN-NF"]
 all_paths = ["FN-NF"]
-# if v.fine_tune_bert == 'yes':
-#     exec(open("finetune_bert.py").read())
-
 for path in all_paths:
     v.gcn_path = path
     if v.gcn_path == "NF-FN-NF":
@@ -198,35 +180,20 @@ for path in all_paths:
     print("\nGCN PATH IS:", str(v.gcn_path))
     model, optimizer, A_s, input_type, train_mask, g_label, g_train, g_val, g_test, g_label_train, g_input_ids, g_attention_mask, idx_loader_train, idx_loader_val, idx_loader_test, idx_loader = set_variables(
         v, gpu, config)
-    # exec(open("build_graph.py").read())
-    bert_output_original = update_feature()
+    bert_output = update_feature()
 
-    # Normalizing BERT output?
-    # A = th.clone(bert_output_original)
-    # A -= A.min()
-    # A /= A.max()
-    bert_output = bert_output_original
-
-    A1, A2, A3 = A_s
-    A1 = bert_output.T
-    A2 = bert_output
-    A_s = (A1, A2, A3)
-    model.A_s = A_s
     if input_type == "document-matrix input":
         print("We have input matrix: n_doc x 768")
-        gcn_input = bert_output
+        gcn_input = copy.deepcopy(bert_output)
     else:
         print("We have input matrix: n_vocab x n_vocab")
         gcn_input = th.eye(A_s[0].shape[1]).to(gpu)
 
     if v.train_bert_w_gcn == "no":
-        model.train_bert_w_gcn = False
         for param in model.bert_model.parameters():
             param.requires_grad = False
         for param in model.classifier.parameters():
             param.requires_grad = False
-    else:
-        model.train_bert_w_gcn = True
 
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
     log_training_results.best_val_acc = 0

@@ -4,7 +4,7 @@
     "batch_size": 64,
     "m": 0.6,
     "bert_init": "roberta-base",
-    "pretrained_bert_ckpt": "",
+    "pretrained_bert_ckpt": "checkpoint/roberta-base_mr",
     "dataset": "mr",
     "checkpoint_dir": "",
     "n_hidden": [
@@ -16,7 +16,7 @@
     "dropout": 0.4,
     "weight_decay": 0.0005,
     "use_concat": "no",
-    "train_bert_w_gcn": "no",
+    "train_bert_w_gcn": "yes",
     "gcn_path": "FF-NF",
     "fine_tune_bert": "yes",
     "train_all_paths": "yes"

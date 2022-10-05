@@ -94,6 +94,12 @@ class BertGCN_sparse(th.nn.Module):
     def forward(self, g_input_ids, g_attention_mask, bert_output, gcn_input, idx):
 
         input_ids, attention_mask = g_input_ids[idx], g_attention_mask[idx]
+        # if self.training:
+        #     cls_feats = self.bert_model(
+        #         input_ids, attention_mask)[0][:, 0]
+        #     gcn_input[idx] = cls_feats
+        # else:
+        #     cls_feats = gcn_input[idx]
 
         if self.input_type == "document-matrix input":
 
