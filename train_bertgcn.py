@@ -59,6 +59,10 @@ v, ckpt_dir, config, sh, fh, logger, cpu, gpu = configure(WORK_DIR, cur_dir)
 def train_step(engine, batch):
     global model, optimizer, g_input_ids, g_attention_mask, bert_output, gcn_input, g_label_train, g_train
     model.train()
+    # A1, A2, A3 = model.gcn.A_s
+    # A1 = bert_output.T
+    # A2 = bert_output
+    # model.gcn.A_s = (A1.to(gpu), A2.to(gpu), A3)
     model = model.to(gpu)
     take_to(gpu)
     optimizer.zero_grad()
@@ -90,8 +94,8 @@ trainer = Engine(train_step)
 
 @trainer.on(Events.EPOCH_COMPLETED)
 def reset_graph(trainer):
-    global gcn_input
-    print(gcn_input[0])
+    global gcn_input, model
+    print(model.gcn.A_s[0][0][:10])
     scheduler.step()
     update_feature()
     th.cuda.empty_cache()
