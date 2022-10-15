@@ -39,3 +39,7 @@ We will run single file deneme_ignite.py where we can accomplish everything we w
 - [ ] son pathte hidden dim az olmasına rağmen çalıştı bak
 - [ ] pathleri üst üste runlayınca bertgcn checkpointini aynı yere save ediyor, onu kullanmasak bile yanlış approach
 
+# Notes
+
+- bert lr 1e-6 yapınca yavaş ama güzel öğreniyor fakat yine aynı noktaya geliyor gibi 1e-5 durumla
+

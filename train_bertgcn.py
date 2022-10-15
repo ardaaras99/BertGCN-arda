@@ -94,8 +94,6 @@ trainer = Engine(train_step)
 
 @trainer.on(Events.EPOCH_COMPLETED)
 def reset_graph(trainer):
-    global gcn_input, model
-    print(model.gcn.A_s[0][0][:10])
     scheduler.step()
     update_feature()
     th.cuda.empty_cache()
