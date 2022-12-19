@@ -1,23 +1,17 @@
 {
-    "nb_epochs": 10,
-    "max_length": 64,
+    "nb_epochs": 10000,
+    "patience": 1500,
+    "print_gap": 100,
     "batch_size": 128,
-    "m": 0.35,
-    "bert_init": "roberta-base",
-    "pretrained_bert_ckpt": "checkpoint/roberta-base_mr",
+    "m": 0.3,
     "dataset": "mr",
-    "checkpoint_dir": "",
     "n_hidden": [
         200
     ],
-    "bert_lr": 1e-06,
-    "gcn_lr": 0.0001,
-    "gcn_model": "bert_hete-gcn",
-    "dropout": 0.6,
-    "weight_decay": 0.0005,
-    "use_concat": "no",
-    "train_bert_w_gcn": "yes",
-    "gcn_path": "FF-NF",
-    "fine_tune_bert": "yes",
-    "train_all_paths": "yes"
+    "lr": 1e-02,
+    "dropout": 0.0,
+    "gcn_path": "FN-NF",
+    "normalize_input_embeddings": "False",
+    "normalize_graphs": "False",
+    "pre_process_text": "False"
 }
