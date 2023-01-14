@@ -25,12 +25,15 @@ def type_trainer_helper1(A_s, nfeat, v, gpu, nb_class, gcn_type):
     return gcn_model, criterion
 
 
-def type_trainer(all_paths, label, v, FF, NF, FN, NN,
-                 gpu, nb_train, nb_val, nb_test, nb_class, gcn_type=1):
+def type_trainer(all_paths, label, v,
+                 FF, NF, FN, NN,
+                 gpu, nb_train, nb_val, nb_test, nb_class,
+                 gcn_type=1):
+
     for path in all_paths:
         v.gcn_path = path
         print('\nCurrent GCN path: {}'.format(v.gcn_path))
-        A1, A2, A3, input_type = get_path(v, FF, NF, FN, NN)
+        A1, A2, A3, input_type, nfeat = get_path(v, FF, NF, FN, NN)
 
         if v.gcn_path == "NF-FN-NF":
             v.n_hidden.append(100)
@@ -38,7 +41,7 @@ def type_trainer(all_paths, label, v, FF, NF, FN, NN,
         else:
             A_s = (A1.to(gpu), A2.to(gpu), A3)
 
-        input_embeddings, nfeat = get_input_embeddings(input_type, gpu, A_s, v)
+        input_embeddings = get_input_embeddings(input_type, gpu, A_s, v)
 
         gcn_model, criterion = type_trainer_helper1(
             A_s, nfeat, v, gpu, nb_class, gcn_type)
@@ -55,7 +58,6 @@ def type_trainer(all_paths, label, v, FF, NF, FN, NN,
             input_embeddings.to(gpu),
             nb_train, nb_val, nb_test,
             v, gpu, criterion,
-            patience=v.patience, print_gap=v.print_gap,
             model_path=model_path)
 
         gcn_model = gcn_trainer.train_val_loop()

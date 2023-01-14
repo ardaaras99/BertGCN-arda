@@ -1,17 +1,30 @@
 {
-    "nb_epochs": 10000,
-    "patience": 1500,
+    "gcn_type": 1,
+    "nb_epochs": 3000,
+    "patience": 1000,
     "print_gap": 100,
-    "batch_size": 128,
     "m": 0.3,
     "dataset": "mr",
     "n_hidden": [
         200
     ],
+    "linear_h": 100,
     "lr": 1e-02,
-    "dropout": 0.0,
+    "dropout": [
+        0.1,
+        0.1,
+        0.1
+    ],
+    "bn_activator": [
+        "True",
+        "True",
+        "True"
+    ],
     "gcn_path": "FN-NF",
     "normalize_input_embeddings": "False",
     "normalize_graphs": "False",
-    "pre_process_text": "False"
+    "pre_process_text": "False",
+    "train_val_split_ratio": 0.2,
+    "current_epoch": 0,
+    "sarp": 1
 }

@@ -18,3 +18,7 @@ bert_gcn
 bert_gcn_ind
 bert_sgc
 tunaya-sor.md
+.vscode/
+datas/
+gcn_models/
+bert-finetune_models/

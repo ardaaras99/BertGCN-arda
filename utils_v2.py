@@ -1,15 +1,14 @@
 from sklearn.metrics import classification_report
 import numpy as np
-from sklearn.metrics import accuracy_score, f1_score
-import scipy.sparse as sp
+from sklearn.metrics import f1_score
 import pickle as pkl
 import json
 from pathlib import Path
 from types import SimpleNamespace
 import torch.utils.data as Data
-
 import torch
 import torch as th
+from sklearn.metrics import accuracy_score as acc_func
 
 
 def configure_jsons(WORK_DIR, cur_dir):
@@ -78,8 +77,8 @@ def get_metrics(output, labels, ID=''):
     w_f1 = f1_score(y_true, y_pred, average='weighted')
     macro = f1_score(y_true, y_pred, average='macro')
     micro = f1_score(y_true, y_pred, average='micro')
-
-    return w_f1, macro, micro
+    acc = acc_func(y_true, y_pred)
+    return w_f1, macro, micro, acc
 
 # def sparse_to_tuple(sparse_mx):
 #     """Convert sparse matrix to tuple representation."""
@@ -143,6 +142,13 @@ def max_min_normalize(x):
     return x_normed
 
 
+def configure_labels(y, nb_train, nb_val, nb_test):
+    y = th.LongTensor((y).argmax(axis=1))
+    label = {}
+    label['train'], label['val'], label['test'] = y[:nb_train], y[nb_train:nb_train+nb_val], y[-nb_test:]
+    return label
+
+
 def configure_bert_inputs(input_ids_, attention_mask_, y, nb_train, nb_val, nb_test, v):
     y = th.LongTensor((y).argmax(axis=1))
     label = {}
@@ -156,11 +162,17 @@ def configure_bert_inputs(input_ids_, attention_mask_, y, nb_train, nb_val, nb_t
     attention_mask['train'], attention_mask['val'], attention_mask['test'] = attention_mask_[
         :nb_train], attention_mask_[nb_train:nb_train+nb_val], attention_mask_[-nb_test:]
 
+    indices = {}
+    indices['train'] = th.arange(0, nb_train, dtype=th.long)
+    indices['val'] = th.arange(nb_train, nb_train + nb_val, dtype=th.long)
+    indices['test'] = th.arange(
+        nb_train + nb_val, nb_train + nb_val + nb_test, dtype=th.long)
+
     datasets = {}
     loader = {}
     for split in ['train', 'val', 'test']:
         datasets[split] = Data.TensorDataset(
-            input_ids[split], attention_mask[split], label[split])
+            input_ids[split], attention_mask[split], label[split], indices[split])
         loader[split] = Data.DataLoader(
             datasets[split], batch_size=v.batch_size, shuffle=False)
 
@@ -168,11 +180,14 @@ def configure_bert_inputs(input_ids_, attention_mask_, y, nb_train, nb_val, nb_t
                      'val': label['val'].shape,
                      'test': label['test'].shape}
 
-    return datasets, loader, dataset_sizes, input_ids, attention_mask, label
+    return loader, dataset_sizes, label
 
 
-def get_dataset_sizes(train_ids, test_ids, y):
-    nb_val = int(0.2*len(train_ids))
+def get_dataset_sizes(train_ids, test_ids, y, train_val_split_ratio=0.2, no_val=False):
+    if no_val:
+        nb_val = 1
+    else:
+        nb_val = int(train_val_split_ratio * len(train_ids))
     nb_train, nb_test = len(train_ids) - nb_val, len(test_ids)
     nb_class = y.shape[1]
     return nb_train, nb_test, nb_val, nb_class
@@ -201,22 +216,34 @@ def get_path(v, FF, NF, FN, NN):
         A2 = FN
         A3 = NF
         input_type = "word-matrix input"
-    return A1, A2, A3, input_type  # type:ignore
+
+    if input_type == 'word-matrix input':  # type:ignore
+        n_feat = A1.shape[1]  # type:ignore
+    else:
+        if v.sarp == 1:
+            n_feat = A1.shape[1]  # type:ignore
+        else:
+            n_feat = 768
+    return A1, A2, A3, input_type, n_feat  # type:ignore
 
 
 def get_input_embeddings(input_type, gpu, A_s, v):
     if input_type == "document-matrix input":
-        print("We have input matrix: n_doc x 768")
-        input_embeddings = torch.load(
-            'bert-finetune_models/{}_embeddings.pt'.format(v.dataset))
+        if v.sarp == 1:
+            print("We have input matrix: n_doc x n_doc")
+            input_embeddings = th.eye(A_s[0].shape[1]).to(gpu)
+        else:
+            print("We have input matrix: n_doc x 768")
+            input_embeddings = torch.load(
+                'bert-finetune_models/{}_embeddings.pt'.format(v.dataset))
     else:
         print("We have input matrix: n_vocab x n_vocab")
         input_embeddings = th.eye(A_s[0].shape[1]).to(gpu)
 
     if v.normalize_input_embeddings == 'True':
         input_embeddings = max_min_normalize(input_embeddings)
-    nfeat = input_embeddings.shape[1]
-    return input_embeddings, nfeat
+
+    return input_embeddings
 
 
 def to_torch_sparse_tensor(M):
