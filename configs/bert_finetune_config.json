@@ -1,10 +1,10 @@
 {
-    "nb_epochs": 5,
-    "patience": 2,
+    "nb_epochs": 50,
+    "patience": 4,
     "print_gap": 1,
     "max_length": 16,
     "batch_size": 64,
     "bert_init": "roberta-base",
-    "dataset": "mr",
+    "dataset": "R8",
     "lr": 5e-05
 }

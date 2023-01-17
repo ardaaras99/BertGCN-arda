@@ -1,10 +1,10 @@
 {
-    "gcn_type": 1,
-    "nb_epochs": 3000,
-    "patience": 1000,
-    "print_gap": 100,
+    "gcn_type": 2,
+    "nb_epochs": 10,
+    "patience": 10,
+    "print_gap": 2,
     "m": 0.3,
-    "dataset": "mr",
+    "dataset": "R8",
     "n_hidden": [
         200
     ],
@@ -25,6 +25,5 @@
     "normalize_graphs": "False",
     "pre_process_text": "False",
     "train_val_split_ratio": 0.2,
-    "current_epoch": 0,
-    "sarp": 1
+    "current_epoch": 0
 }

@@ -6,7 +6,6 @@ References:
 """
 
 import torch as th
-from utils_train_v2 import *
 from utils_v2 import *
 import torch.nn as nn
 from layers import GraphConvolution
@@ -19,12 +18,15 @@ from transformers.models.auto.modeling_auto import AutoModel
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from gcn_models import *
 
+from torch.optim import lr_scheduler
 import torch.nn.functional as F
 from layers import *
 
+set_seed()
+
 
 class BertClassifier(th.nn.Module):
-    def __init__(self, pretrained_model='roberta_base', nb_class=20):
+    def __init__(self, pretrained_model="roberta_base", nb_class=20):
         super(BertClassifier, self).__init__()
         self.nb_class = nb_class
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
@@ -39,9 +41,21 @@ class BertClassifier(th.nn.Module):
 
 
 class BertTrainer:
-    def __init__(self, v, v_bert, gpu, cpu,
-                 model, optimizer, scheduler, criterion,
-                 loader, dataset_sizes, label, model_type='fine_tune'):
+    def __init__(
+        self,
+        v,
+        v_bert,
+        gpu,
+        cpu,
+        model,
+        optimizer,
+        scheduler,
+        criterion,
+        loader,
+        dataset_sizes,
+        label,
+        model_type="fine_tune",
+    ):
 
         self.v = v
         self.v_bert = v_bert
@@ -51,14 +65,17 @@ class BertTrainer:
         self.model = model
 
         # BURASI KRİTİK BAYA DOĞRU ÇALIŞTIĞINA EMİN OL
-        if model_type == 'fine_tune':
+        if model_type == "fine_tune":
             self.model_weights_path = "bert-finetune_models/{}_weights.pt".format(
-                self.v_bert.dataset)
+                self.v_bert.dataset
+            )
         else:
-            self.model_weights_path = 'gcn_models/{}_type{}_weights_{}.pt'.format(
-                v.dataset, str(3), v.gcn_path)
-            self.model.bert.load_state_dict(torch.load(
-                'bert-finetune_models/{}_weights.pt'.format(v.dataset)))
+            self.model_weights_path = "gcn_models/{}_type{}_weights_{}.pt".format(
+                v.dataset, str(3), v.gcn_path
+            )
+            self.model.bert.load_state_dict(
+                torch.load("bert-finetune_models/{}_weights.pt".format(v.dataset))
+            )
 
         # self e save edilmesi gerekenler:
         self.optimizer = optimizer
@@ -72,33 +89,38 @@ class BertTrainer:
         with th.no_grad():
             self.model.to(self.gpu)
             self.model.eval()
-            phases = ['train', 'val', 'test']
+            phases = ["train", "val", "test"]
             cls_list = []
             for phase in phases:
                 for iis, att_mask, _, _ in self.loader[phase]:
                     cls_feats = self.model.bert.bert_model(
-                        iis.to(self.gpu), att_mask.to(self.gpu))[0][:, 0]
+                        iis.to(self.gpu), att_mask.to(self.gpu)
+                    )[0][:, 0]
 
                     cls_list.append(cls_feats.to(self.cpu))
             input_embeddings = th.cat(cls_list, axis=0)  # type: ignore
         return input_embeddings
 
-    def loop(self, phase='train'):
+    def loop(self, phase="train"):
         loss_s, w_f1, macro, micro, acc = 0, 0, 0, 0, 0
         self.model.to(self.gpu)
-        self.model.train() if phase == 'train' else self.model.eval()
+        self.model.train() if phase == "train" else self.model.eval()
 
-        if self.model_type != 'fine_tune':
+        if self.model_type != "fine_tune":
             gcn_input = self.get_gcn_input().to(self.gpu)
         else:
             gcn_input = 0
 
         for iis, att_mask, lbls, idx in self.loader[phase]:
 
-            iis, att_mask, lbls, idx = iis.to(
-                self.gpu), att_mask.to(self.gpu), lbls.to(self.gpu), idx.to(self.gpu)
+            iis, att_mask, lbls, idx = (
+                iis.to(self.gpu),
+                att_mask.to(self.gpu),
+                lbls.to(self.gpu),
+                idx.to(self.gpu),
+            )
 
-            if phase == 'train':
+            if phase == "train":
                 self.optimizer.zero_grad()
 
             y_true = lbls.type(th.long)
@@ -107,7 +129,7 @@ class BertTrainer:
             # t for temp
             w_f1_t, macro_t, micro_t, acc_t = get_metrics(y_pred, y_true)
 
-            if phase == 'train':
+            if phase == "train":
                 loss.backward()
                 self.optimizer.step()
                 self.scheduler.step()
@@ -120,33 +142,33 @@ class BertTrainer:
             acc += acc_t * norm_c
         return loss_s, w_f1, macro, micro, acc
 
-    def print_results(self, train_w_f1, val_w_f1,
-                      train_loss, val_loss, epoch):
+    def print_results(self, train_w_f1, val_w_f1, train_loss, val_loss, epoch):
 
         epoch_len = len(str(self.v_bert.nb_epochs))
         if epoch % self.v_bert.print_gap == 0:
-            print_msg = (f'[{epoch:>{epoch_len}}/{self.v_bert.nb_epochs:>{epoch_len}}] ' +
-                         f'train_loss: {train_loss:.3f} ' +
-                         f'valid_loss: {val_loss:.3f} ' +
-                         f'train_w_f1: {100*train_w_f1:.3f} ' +
-                         f'val_w_f1: {100*val_w_f1:.3f} ')
+            print_msg = (
+                f"[{epoch:>{epoch_len}}/{self.v_bert.nb_epochs:>{epoch_len}}] "
+                + f"train_loss: {train_loss:.3f} "
+                + f"valid_loss: {val_loss:.3f} "
+                + f"train_w_f1: {100*train_w_f1:.3f} "
+                + f"val_w_f1: {100*val_w_f1:.3f} "
+            )
 
             print(print_msg)
 
     def train_val_loop(self):
         early_stopping = EarlyStopping(
-            patience=self.v_bert.patience, verbose=True,
-            path=self.model_weights_path)
+            patience=self.v_bert.patience, verbose=True, path=self.model_weights_path
+        )
 
-        for epoch in range(1, self.v_bert.nb_epochs+1):
+        for epoch in range(1, self.v_bert.nb_epochs + 1):
             start = time.time()
-            train_loss, train_w_f1, _, _, _ = self.loop(phase='train')
+            train_loss, train_w_f1, _, _, _ = self.loop(phase="train")
 
             with th.no_grad():
-                val_loss, val_w_f1, _, val_micro, _ = self.loop(phase='val')
+                val_loss, val_w_f1, _, val_micro, _ = self.loop(phase="val")
 
-            self.print_results(train_w_f1, val_w_f1,
-                               train_loss, val_loss, epoch)
+            self.print_results(train_w_f1, val_w_f1, train_loss, val_loss, epoch)
 
             early_stopping(val_micro, self.model)
             if early_stopping.early_stop:
@@ -164,32 +186,48 @@ class BertTrainer:
         with th.no_grad():
             self.model.to(self.gpu)
             self.model.eval()
-            phases = ['train', 'val', 'test']
+            phases = ["train", "val", "test"]
             cls_list = []
             cls_logit_list = []
             for phase in phases:
                 for iis, att_mask, _, _ in self.loader[phase]:
                     cls_feats = self.model.bert_model(
-                        iis.to(self.gpu), att_mask.to(self.gpu))[0][:, 0]  # original bert_model has classifier head we get rid of it
-                    cls_logits = self.model(
-                        iis.to(self.gpu), att_mask.to(self.gpu))
+                        iis.to(self.gpu), att_mask.to(self.gpu)
+                    )[0][
+                        :, 0
+                    ]  # original bert_model has classifier head we get rid of it
+                    cls_logits = self.model(iis.to(self.gpu), att_mask.to(self.gpu))
 
                     cls_list.append(cls_feats.to(self.cpu))
                     cls_logit_list.append(cls_logits.to(self.cpu))
             input_embeddings = th.cat(cls_list, axis=0)  # type: ignore
             cls_logits = th.cat(cls_logit_list, axis=0)  # type: ignore
 
-        torch.save(input_embeddings,
-                   'bert-finetune_models/{}_embeddings.pt'.format(self.v_bert.dataset))
-        torch.save(cls_logits,
-                   'bert-finetune_models/{}_logits.pt'.format(self.v_bert.dataset))
+        torch.save(
+            input_embeddings,
+            "bert-finetune_models/{}_embeddings.pt".format(self.v_bert.dataset),
+        )
+        torch.save(
+            cls_logits, "bert-finetune_models/{}_logits.pt".format(self.v_bert.dataset)
+        )
 
 
 class GCN_Trainer:
-    def __init__(self, model, optimizer, scheduler, label,
-                 input_embeddings, nb_train, nb_val, nb_test,
-                 v, gpu, criterion,
-                 model_path=''):
+    def __init__(
+        self,
+        model,
+        optimizer,
+        scheduler,
+        label,
+        input_embeddings,
+        nb_train,
+        nb_val,
+        nb_test,
+        v,
+        gpu,
+        criterion,
+        model_path="",
+    ):
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -209,8 +247,8 @@ class GCN_Trainer:
         self.model.train()
         self.optimizer.zero_grad()
 
-        y_pred = self.model(self.input_embeddings)[:self.nb_train]
-        y_true = self.label['train'].type(th.long).to(self.gpu)
+        y_pred = self.model(self.input_embeddings)[: self.nb_train]
+        y_true = self.label["train"].type(th.long).to(self.gpu)
 
         loss = self.criterion(y_pred, y_true)
         w_f1, macro, micro, acc = get_metrics(y_pred, y_true)
@@ -229,10 +267,10 @@ class GCN_Trainer:
 
             y_pred = self.model(self.input_embeddings)
 
-            if phase == 'val':
-                y_pred = y_pred[self.nb_train:self.nb_train + self.nb_val]
+            if phase == "val":
+                y_pred = y_pred[self.nb_train : self.nb_train + self.nb_val]
             else:
-                y_pred = y_pred[-self.nb_test:]
+                y_pred = y_pred[-self.nb_test :]
 
             y_true = self.label[phase].type(th.long).to(self.gpu)
             loss = self.criterion(y_pred, y_true)
@@ -240,50 +278,82 @@ class GCN_Trainer:
             w_f1, macro, micro, acc = get_metrics(y_pred, y_true)
         return test_loss, w_f1, macro, micro, acc
 
-    def print_results(self, train_w_f1, train_macro, train_micro,
-                      val_w_f1, val_macro, val_micro, val_acc,
-                      train_loss, val_loss,
-                      epoch):
+    def print_results(
+        self,
+        train_w_f1,
+        train_macro,
+        train_micro,
+        val_w_f1,
+        val_macro,
+        val_micro,
+        val_acc,
+        train_loss,
+        val_loss,
+        epoch,
+    ):
 
         epoch_len = len(str(self.v.nb_epochs))
         if epoch % self.v.print_gap == 0:
-            print_msg = (f'[{epoch:>{epoch_len}}/{self.v.nb_epochs:>{epoch_len}}] ' +
-                         f'train_loss: {train_loss:.3f} ' +
-                         f'valid_loss: {val_loss:.3f} ' +
-                         f'train_w_f1: {100*train_w_f1:.3f} ' +
-                         f'val_w_f1: {100*val_w_f1:.3f} ' +
-                         f'val_acc: {100*val_acc:.3f} ')
+            print_msg = (
+                f"[{epoch:>{epoch_len}}/{self.v.nb_epochs:>{epoch_len}}] "
+                + f"train_loss: {train_loss:.3f} "
+                + f"valid_loss: {val_loss:.3f} "
+                + f"train_w_f1: {100*train_w_f1:.3f} "
+                + f"val_w_f1: {100*val_w_f1:.3f} "
+                + f"val_acc: {100*val_acc:.3f} "
+            )
 
-            print(print_msg)
+            # print(print_msg)
 
     def train_val_loop(self):
         self.model.to(self.gpu)
         early_stopping = EarlyStopping(
-            patience=self.v.patience, verbose=False, path=self.model_path)
-
-        for epoch in range(1, self.v.nb_epochs+1):
+            patience=self.v.patience, verbose=False, path=self.model_path
+        )
+        avg_time = []
+        for epoch in range(1, self.v.nb_epochs + 1):
             start = time.time()
             self.v.current_epoch = epoch
-            train_loss, train_w_f1, train_macro, train_micro, train_acc = self.train_model()
+            (
+                train_loss,
+                train_w_f1,
+                train_macro,
+                train_micro,
+                train_acc,
+            ) = self.train_model()
             val_loss, val_w_f1, val_macro, val_micro, val_acc = self.eval_model(
-                phase='val')
-            self.print_results(train_w_f1, train_macro, train_micro,
-                               val_w_f1, val_macro, val_micro, val_acc,
-                               train_loss, val_loss,
-                               epoch)
+                phase="val"
+            )
+            self.print_results(
+                train_w_f1,
+                train_macro,
+                train_micro,
+                val_w_f1,
+                val_macro,
+                val_micro,
+                val_acc,
+                train_loss,
+                val_loss,
+                epoch,
+            )
 
             early_stopping(val_micro, self.model)
             end = time.time()
-            if epoch == 1:
-                print("GCN Type{} time per epoch: {:.3f}".format(
-                    self.v.gcn_type, (end - start)))
+            avg_time.append(end - start)
+
             if early_stopping.early_stop:
-                print("Early stopping")
+                # print("Early stopping")
                 break
+        # print(
+        #     "GCN Type{} time per epoch: {:.3f}".format(
+        #         self.v.gcn_type, np.mean(avg_time)
+        #     )
+        # )
+        avg_time = np.mean(avg_time)
 
         self.model.load_state_dict(th.load(self.model_path))
 
-        return self.model
+        return self.model, avg_time
 
 
 class GCN_type3(nn.Module):
@@ -295,11 +365,9 @@ class GCN_type3(nn.Module):
         self.gpu = gpu
         self.n_class = n_class
         # GCN Part
-        self.gcn = GCN_type1(A_s=self.A_s,
-                             nfeat=self.nfeat,
-                             v=self.v,
-                             gpu=self.gpu,
-                             nclass=self.n_class)
+        self.gcn = GCN_type1(
+            A_s=self.A_s, nfeat=self.nfeat, v=self.v, gpu=self.gpu, nclass=self.n_class
+        )
         # BERT Part
         self.v_bert = v_bert
         self.bert = BertClassifier(self.v_bert.bert_init, self.n_class)
@@ -308,8 +376,7 @@ class GCN_type3(nn.Module):
     def forward(self, input_ids, attention_mask, gcn_input, idx):
         # idx -> current batch ids to update graph
         if self.training:
-            cls_feats = self.bert.bert_model(
-                input_ids, attention_mask)[0][:, 0]
+            cls_feats = self.bert.bert_model(input_ids, attention_mask)[0][:, 0]
             # during training we update GCN inputs after BERT iteration
             gcn_input[idx] = cls_feats
         else:
@@ -322,7 +389,7 @@ class GCN_type3(nn.Module):
         # burada softmax alıp idx hesaplamak la, idx alıp  softmax yapmak farklı şeyler
         gcn_pred = nn.Softmax(dim=1)(gcn_logit[idx])
 
-        pred = (gcn_pred+1e-10) * self.v.m + cls_pred * (1 - self.v.m)
+        pred = (gcn_pred + 1e-10) * self.v.m + cls_pred * (1 - self.v.m)
         pred = th.log(pred)
         return pred
 
@@ -341,25 +408,24 @@ class GCN_type1(nn.Module):
             self.current_dim = hdim
         # en son classification için gcn layeri ekle
         # belki bundan önce bir linear layer ekleyebilirsin?
-        self.gcn_layers.append(GraphConvolution(
-            self.current_dim, self.v.linear_h))
+        self.gcn_layers.append(GraphConvolution(self.current_dim, self.v.linear_h))
         self.linear = th.nn.Linear(self.v.linear_h, nclass)
 
     def forward(self, x):
         for i, layer in enumerate(self.gcn_layers):
             x = layer(x, self.A_s[i])
             # removing last BN before softmax
-            if self.v.bn_activator[i] == 'True':
+            if self.v.bn_activator[i] == "True":
                 x = nn.BatchNorm1d(x.shape[1], affine=True).to(self.gpu)(x)
             x = F.leaky_relu(x)
             x = F.dropout(x, self.v.dropout[i], training=self.training)
 
         x = self.linear(x)
-        if self.v.bn_activator[-1] == 'True':
+        if self.v.bn_activator[-1] == "True":
             x = nn.BatchNorm1d(x.shape[1], affine=True).to(self.gpu)(x)
 
-        #x = F.leaky_relu(x)
-        #x = F.dropout(x, self.v.dropout[-1], training=self.training)
+        # x = F.leaky_relu(x)
+        # x = F.dropout(x, self.v.dropout[-1], training=self.training)
         # no log softmax here, it will be done in combined model
         return x
 
@@ -373,11 +439,9 @@ class GCN_type2(nn.Module):
         self.gpu = gpu
         self.cls_logit = cls_logit
         self.n_class = n_class
-        self.gcn = GCN_type1(A_s=self.A_s,
-                             nfeat=self.nfeat,
-                             v=self.v,
-                             gpu=self.gpu,
-                             nclass=self.n_class)
+        self.gcn = GCN_type1(
+            A_s=self.A_s, nfeat=self.nfeat, v=self.v, gpu=self.gpu, nclass=self.n_class
+        )
 
         # tek başına type1 trainletip ordan başlatalım dedik ama çok da güzel olmadı
         # self.gcn.load_state_dict(th.load('gcn_models/{}_type1_weights_{}.pt'.format(
@@ -395,22 +459,201 @@ class GCN_type2(nn.Module):
         return pred
 
 
+class Type_Trainer:
+    def __init__(self, v, v_bert, all_paths, gpu, cpu, gcn_type):
+        self.v = v
+        self.v_bert = v_bert
+        self.all_paths = all_paths
+        self.gpu = gpu
+        self.cpu = cpu
+        self.gcn_type = gcn_type
+        (
+            self.docs,
+            self.y,
+            train_ids,
+            test_ids,
+            self.NF,
+            self.FN,
+            self.NN,
+            self.FF,
+        ) = load_corpus(v)
+        self.nb_train, self.nb_test, self.nb_val, self.nb_class = get_dataset_sizes(
+            train_ids, test_ids, self.y, self.v.train_val_split_ratio, no_val=False
+        )
+
+        self.label = configure_labels(self.y, self.nb_train, self.nb_val, self.nb_test)
+
+    def __call__(self):
+        for path in self.all_paths:
+            self.v.gcn_path = path
+            A1, A2, A3, input_type, self.nfeat = get_path(
+                self.v, self.FF, self.NF, self.FN, self.NN
+            )
+
+            if self.v.gcn_path == "NF-FN-NF":
+                self.v.n_hidden.append(100)
+                self.A_s = (
+                    A1.to(self.gpu),
+                    A2.to(self.gpu),
+                    A3.to(self.gpu),
+                )  # type: ignore
+            else:
+                self.A_s = (A1.to(self.gpu), A2.to(self.gpu), A3)
+
+            if self.gcn_type != 4:
+                self.input_embeddings = get_input_embeddings(
+                    input_type, self.gpu, self.A_s, self.v
+                )
+
+            self.helper1()
+            self.helper2()
+            self.helper3()
+
+            self.gcn_model, avg_time = self.gcn_trainer.train_val_loop()
+            self.gcn_model.load_state_dict(torch.load(self.model_path))
+            # GCN Trainer tek loop yaparsan burası kalkar
+            if self.gcn_type == 4:
+                with th.no_grad():
+                    _, test_w_f1, test_macro, test_micro, test_acc = self.gcn_trainer.loop(  # type: ignore
+                        phase="test"
+                    )
+            else:
+                _, test_w_f1, test_macro, test_micro, test_acc = self.gcn_trainer.eval_model(  # type: ignore
+                    phase="test"
+                )
+
+            # print("Test weighted f1 is: {:.3f}".format(100 * test_w_f1))
+            # print("Test macro f1 is: {:.3f}".format(100 * test_macro))
+            # print("Test micro f1 is: {:.3f}".format(100 * test_micro))
+            # print("Test acc is: {:.3f}\n".format(100 * test_acc))
+
+            # acc and micro f1 same thing for multiclass classification
+            return test_acc, test_w_f1, avg_time
+
+    def helper1(self):
+        if self.gcn_type == 1 or self.gcn_type == 2:
+            # print("Type {} Training".format(self.gcn_type))
+            self.gcn_model = GCN_type1(
+                self.A_s, self.nfeat, self.v, self.gpu, nclass=self.nb_class
+            )
+            self.criterion = nn.CrossEntropyLoss()
+        elif self.gcn_type == 3:
+            # print("Type 3 Training")
+            cls_logit = torch.load(
+                "bert-finetune_models/{}_logits.pt".format(self.v.dataset)
+            )
+            self.gcn_model = GCN_type2(
+                self.A_s,
+                self.nfeat,
+                self.v,
+                self.gpu,
+                cls_logit.to(self.gpu),
+                n_class=self.nb_class,
+            )
+            self.criterion = nn.NLLLoss()
+        else:
+            self.gcn_model = GCN_type3(
+                self.A_s, self.nfeat, self.v, self.v_bert, self.gpu, self.nb_class
+            )
+            self.criterion = nn.CrossEntropyLoss()
+
+    def helper2(self):
+        if self.gcn_type == 4:
+            self.optimizer = th.optim.Adam(
+                [
+                    {
+                        "params": self.gcn_model.bert.bert_model.parameters(),  # type: ignore
+                        "lr": self.v_bert.lr,
+                    },
+                    {
+                        "params": self.gcn_model.bert.classifier.parameters(),  # type: ignore
+                        "lr": self.v_bert.lr,
+                    },
+                    {
+                        "params": self.gcn_model.gcn.parameters(),  # type: ignore
+                        "lr": self.v.lr,
+                    },  # type: ignore
+                ],
+                lr=1e-3,
+            )  # type: ignore
+            self.scheduler = lr_scheduler.MultiStepLR(
+                self.optimizer, milestones=[30], gamma=0.1
+            )
+
+        else:
+            self.optimizer = th.optim.Adam(self.gcn_model.parameters(), lr=self.v.lr)
+            self.scheduler = lr_scheduler.MultiStepLR(
+                self.optimizer, milestones=[30], gamma=0.1
+            )
+
+    def helper3(self):
+        self.model_path = "gcn_models/{}_type{}_weights_{}.pt".format(
+            self.v.dataset, str(self.gcn_type), self.v.gcn_path
+        )
+        if self.gcn_type == 4:
+            input_ids_, attention_mask_ = encode_input(
+                self.v_bert.max_length, list(self.docs), self.gcn_model.bert.tokenizer
+            )  # type: ignore
+
+            self.loader, self.dataset_sizes, self.label = configure_bert_inputs(
+                input_ids_,
+                attention_mask_,
+                self.y,
+                self.nb_train,
+                self.nb_val,
+                self.nb_test,
+                self.v_bert,
+            )
+
+            self.gcn_trainer = BertTrainer(
+                self.v,
+                self.v_bert,
+                self.gpu,
+                self.cpu,
+                self.gcn_model,
+                self.optimizer,
+                self.scheduler,
+                self.criterion,
+                self.loader,
+                self.dataset_sizes,
+                self.label,
+                model_type="gcn",
+            )
+        else:
+            self.gcn_trainer = GCN_Trainer(
+                self.gcn_model,
+                self.optimizer,
+                self.scheduler,
+                self.label,
+                self.input_embeddings.to(self.gpu),
+                self.nb_train,
+                self.nb_val,
+                self.nb_test,
+                self.v,
+                self.gpu,
+                self.criterion,
+                model_path=self.model_path,
+            )
+
+
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
 
-    def __init__(self, patience=7, verbose=False, delta=0, path='checkpoint.pt', trace_func=print):
+    def __init__(
+        self, patience=7, verbose=False, delta=0, path="checkpoint.pt", trace_func=print
+    ):
         """
         Args:
             patience (int): How long to wait after last time validation loss improved.
                             Default: 7
-            verbose (bool): If True, prints a message for each validation loss improvement. 
+            verbose (bool): If True, prints a message for each validation loss improvement.
                             Default: False
             delta (float): Minimum change in the monitored quantity to qualify as an improvement.
                             Default: 0
             path (str): Path for the checkpoint to be saved to.
                             Default: 'checkpoint.pt'
             trace_func (function): trace print function.
-                            Default: print            
+                            Default: print
         """
         self.patience = patience
         self.verbose = verbose
@@ -439,127 +682,10 @@ class EarlyStopping:
             self.counter = 0
 
     def save_checkpoint(self, val_acc, model):
-        '''Saves model when validation acc increase.'''
+        """Saves model when validation acc increase."""
         if self.verbose:
             self.trace_func(
-                f'Validation acc increased ({100*self.val_acc_min:.3f} --> {100*val_acc:.3f}).  Saving model ...')
+                f"Validation acc increased ({100*self.val_acc_min:.3f} --> {100*val_acc:.3f}).  Saving model ..."
+            )
         th.save(model.state_dict(), self.path)
         self.val_acc_min = val_acc
-
-
-class Type_Trainer:
-    def __init__(self, v, v_bert, all_paths, gpu, cpu, gcn_type):
-        self.v = v
-        self.v_bert = v_bert
-        self.all_paths = all_paths
-        self.gpu = gpu
-        self.cpu = cpu
-        self.gcn_type = gcn_type
-        self.docs, self.y, train_ids, test_ids, self.NF, self.FN, self.NN, self.FF = load_corpus(
-            v)
-        self.nb_train, self.nb_test, self.nb_val, self.nb_class = get_dataset_sizes(
-            train_ids, test_ids, self.y,
-            self.v.train_val_split_ratio, no_val=False)
-
-        self.label = configure_labels(
-            self.y, self.nb_train, self.nb_val, self.nb_test)
-
-    def __call__(self):
-        for path in self.all_paths:
-            self.v.gcn_path = path
-            A1, A2, A3, input_type, self.nfeat = get_path(
-                self.v, self.FF, self.NF, self.FN, self.NN)
-
-            if self.v.gcn_path == "NF-FN-NF":
-                self.v.n_hidden.append(100)
-                self.A_s = (A1.to(self.gpu), A2.to(self.gpu),
-                            A3.to(self.gpu))  # type: ignore
-            else:
-                self.A_s = (A1.to(self.gpu), A2.to(self.gpu), A3)
-
-            if self.gcn_type != 3:
-                self.input_embeddings = get_input_embeddings(
-                    input_type, self.gpu, self.A_s, self.v)
-
-            self.helper1()
-            self.helper2()
-            self.helper3()
-
-            self.gcn_model = self.gcn_trainer.train_val_loop()
-            self.gcn_model.load_state_dict(torch.load(self.model_path))
-            # GCN Trainer tek loop yaparsan burası kalkar
-            if self.gcn_type == 3:
-                with th.no_grad():
-                    _, test_w_f1, test_macro, test_micro, test_acc = self.gcn_trainer.loop(  # type: ignore
-                        phase='test')
-            else:
-                _, test_w_f1, test_macro, test_micro, test_acc = self.gcn_trainer.eval_model(  # type: ignore
-                    phase='test')
-
-            print("Test weighted f1 is: {:.3f}".format(100*test_w_f1))
-            print("Test macro f1 is: {:.3f}".format(100*test_macro))
-            print("Test micro f1 is: {:.3f}".format(100*test_micro))
-            print("Test acc is: {:.3f}\n".format(100*test_acc))
-
-            # acc and micro f1 same thing for multiclass classification
-            return test_acc, test_w_f1
-
-    def helper1(self):
-        if self.gcn_type == 1:
-            print('Type 1 Training')
-            self.gcn_model = GCN_type1(
-                self.A_s, self.nfeat, self.v, self.gpu, nclass=self.nb_class)
-            self.criterion = nn.CrossEntropyLoss()
-        elif self.gcn_type == 2:
-            print('Type 2 Training')
-            cls_logit = torch.load(
-                'bert-finetune_models/{}_logits.pt'.format(self.v.dataset))
-            self.gcn_model = GCN_type2(
-                self.A_s, self.nfeat, self.v, self.gpu,
-                cls_logit.to(self.gpu), n_class=self.nb_class)
-            self.criterion = nn.NLLLoss()
-        else:
-            self.gcn_model = GCN_type3(self.A_s, self.nfeat,
-                                       self.v, self.v_bert, self.gpu,
-                                       self.nb_class)
-            self.criterion = nn.CrossEntropyLoss()
-
-    def helper2(self):
-        if self.gcn_type == 3:
-            self.optimizer = th.optim.Adam([
-                {'params': self.gcn_model.bert.bert_model.parameters(),  # type: ignore
-                 'lr': self.v_bert.lr},
-                {'params': self.gcn_model.bert.classifier.parameters(),  # type: ignore
-                 'lr': self.v_bert.lr},
-                {'params': self.gcn_model.gcn.parameters(  # type: ignore
-                ), 'lr': self.v.lr},  # type: ignore
-            ], lr=1e-3)  # type: ignore
-            self.scheduler = lr_scheduler.MultiStepLR(
-                self.optimizer, milestones=[30], gamma=0.1)
-
-        else:
-            self.optimizer = th.optim.Adam(
-                self.gcn_model.parameters(), lr=self.v.lr)
-            self.scheduler = lr_scheduler.MultiStepLR(
-                self.optimizer, milestones=[30], gamma=0.1)
-
-    def helper3(self):
-        self.model_path = 'gcn_models/{}_type{}_weights_{}.pt'.format(
-            self.v.dataset, str(self.gcn_type), self.v.gcn_path)
-        if self.gcn_type == 3:
-            input_ids_, attention_mask_ = encode_input(
-                self.v_bert.max_length, list(self.docs), self.gcn_model.bert.tokenizer)  # type: ignore
-
-            self.loader, self.dataset_sizes, self.label = configure_bert_inputs(
-                input_ids_, attention_mask_, self.y, self.nb_train, self.nb_val, self.nb_test, self.v_bert)
-
-            self.gcn_trainer = BertTrainer(self.v, self.v_bert, self.gpu, self.cpu,
-                                           self.gcn_model, self.optimizer, self.scheduler, self.criterion,
-                                           self.loader, self.dataset_sizes, self.label, model_type='gcn')
-        else:
-            self.gcn_trainer = GCN_Trainer(
-                self.gcn_model, self.optimizer, self.scheduler, self.label,
-                self.input_embeddings.to(self.gpu),
-                self.nb_train, self.nb_val, self.nb_test,
-                self.v, self.gpu, self.criterion,
-                model_path=self.model_path)
