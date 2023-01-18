@@ -89,7 +89,7 @@ print("\n", "*******Re-Train with Best Param Setting*******".center(100), "\n")
 # v_bert.bert_init = trial.params["bert_init"]
 
 v_bert.lr = 0.00011139922000579552
-v_bert.batch_size = 128
+v_bert.batch_size = 64
 v_bert.max_length = 256
 v_bert.bert_init = "roberta-base"
 

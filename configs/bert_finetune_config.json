@@ -1,6 +1,6 @@
 {
     "nb_epochs": 50,
-    "patience": 4,
+    "patience": 15,
     "print_gap": 1,
     "max_length": 16,
     "batch_size": 64,

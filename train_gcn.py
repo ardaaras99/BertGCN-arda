@@ -13,11 +13,10 @@ import optuna
 WORK_DIR = Path(__file__).parent  # type: ignore
 cur_dir = os.path.basename(__file__)
 v, v_bert, cpu, gpu = configure_jsons(WORK_DIR, cur_dir)
-set_seed()
 
 v.nb_epochs = 1000
-v.patience = 50
-v.print_gap = 999
+v.patience = 200
+v.print_gap = 100
 # %%
 def objective_type1_2_3(trial):
     print("\n*******New Trial Begins*******\n".center(100))
@@ -26,11 +25,9 @@ def objective_type1_2_3(trial):
     gcn_lr = trial.suggest_float("gcn_lr", 1e-2, 5e-1, log=True)
 
     if v.gcn_type == 3:
-        m = trial.suggest_float("m", 0.35, 0.85, step=0.05)
-        v.m = m
+        m = trial.suggest_float("m", 0.15, 0.85, step=0.05)
+        v.m = 0
     linear_h = trial.suggest_int("linear_h", 64, 256, step=32)
-
-    # train val spliti de optimize et
 
     v.n_hidden = n_hidden
     for i in range(len(n_hidden) + 1):
@@ -49,6 +46,70 @@ def objective_type1_2_3(trial):
     return test_micro
 
 
+types = [3]
+results_dic = {
+    "model_type": [],
+    "best_params": [],
+    "test_acc_mean": [],
+    "test_acc_std": [],
+    "test_w_f1_mean": [],
+    "test_w_f1_std": [],
+    "gcn_path": [],
+    "avg_time": [],
+}
+#%%
+all_pathss = [["FN-NF"], ["FF-NF"], ["NN-NN"], ["NF-NN"]]
+
+for all_paths in all_pathss:
+    for model_type in types:
+        study = optuna.create_study(direction="maximize")
+        txt = "*******GCN type " + str(model_type) + "*******"
+        print("\n", txt.center(100), "\n")
+        v.gcn_type = model_type
+        if v.gcn_type == 1 or v.gcn_type == 2 or v.gcn_type == 3:
+            study.optimize(objective_type1_2_3, n_trials=200)  # type: ignore
+        elif v.gcn_type == 4:
+            study.optimize(objective_type4, n_trials=200)  # type: ignore
+        else:
+            raise Exception("Invalid GCN type!")
+
+        trial, best_params = study.best_trial, study.best_trial.params
+        print("\n", "*******Re-Train with Best Param Setting*******".center(100), "\n")
+        v, v_bert = set_v(v, v_bert, trial)
+        results_dicc = get_results_dict(
+            results_dic, model_type, best_params, all_paths, v, v_bert, gpu, cpu
+        )
+
+results_df = pd.DataFrame.from_dict(results_dic)
+display(results_df)  # type: ignore
+
+#%%
+
+# Trial Section for type 3
+model_type = 3
+all_paths = ["FN-NF"]
+v.gcn_type = 3
+v.nb_epochs = 2000
+v.patience = 400
+v.print_gap = 100
+
+v.n_hidden[0] = 288
+v.lr = 0.195576189
+v.m = 0.75
+v.linear_h = 128
+v.bn_activator[0] = "True"
+v.bn_activator[1] = "True"
+v.dropout[0] = 0.8
+v.dropout[1] = 0.6
+
+best_params = 0
+results_dic = get_results_dict(
+    results_dic, model_type, best_params, all_paths, v, v_bert, gpu, cpu
+)
+results_df = pd.DataFrame.from_dict(results_dic)
+display(results_df)  # type: ignore
+
+# %%
 def objective_type4(trial):
     v.dropout, v.bn_activator = [], []
 
@@ -86,97 +147,6 @@ def objective_type4(trial):
     return test_micro
 
 
-types = [1, 2, 3]
-results_dic = {
-    "model_type": [],
-    "best_params": [],
-    "test_acc_mean": [],
-    "test_acc_std": [],
-    "test_w_f1_mean": [],
-    "test_w_f1_std": [],
-    "gcn_path": [],
-    "avg_time": [],
-}
-all_pathss = [["FF-NF"], ["FN-NF"], ["NN-NN"], ["NF-NN"]]
-
-for all_paths in all_pathss:
-    for model_type in types:
-        study = optuna.create_study(direction="maximize")
-        txt = "*******GCN type " + str(model_type) + "*******"
-        print("\n", txt.center(100), "\n")
-        v.gcn_type = model_type
-        if v.gcn_type == 1 or v.gcn_type == 2 or v.gcn_type == 3:
-            study.optimize(objective_type1_2_3, n_trials=200)  # type: ignore
-        elif v.gcn_type == 4:
-            study.optimize(objective_type4, n_trials=200)  # type: ignore
-        else:
-            raise Exception("Invalid GCN type!")
-
-        trial = study.best_trial
-        # print("Best Test Micro-F1 {}".format(trial.value))
-        # print("Best hyperparameters: {}".format(trial.params))
-        best_params = trial.params
-        # Retrain with bestparameters
-        print("\n", "*******Re-Train with Best Param Setting*******".center(100), "\n")
-        v.n_hidden[0] = trial.params["n_hidden"]
-        v.lr = trial.params["gcn_lr"]
-        v.linear_h = trial.params["linear_h"]
-        v.bn_activator[0] = trial.params["bn_activator_0"]
-        v.bn_activator[1] = trial.params["bn_activator_1"]
-        # v.bn_activator[2] = trial.params["bn_activator_2"]
-        v.dropout[0] = trial.params["dropout_0"]
-        v.dropout[1] = trial.params["dropout_1"]
-        # v.dropout[2] = trial.params["dropout_2"]
-
-        if v.gcn_type == 1 or v.gcn_type == 2 or v.gcn_type == 3:
-            v.nb_epochs = 1000
-            v.patience = 100
-            v.print_gap = 999
-
-        if v.gcn_type == 3:
-            v.m = trial.params["m"]
-
-        if v.gcn_type == 4:
-            v_bert.bert_lr = trial.params["bert_lrt"]
-            v_bert.batch_size = trial.params["batch_size"]
-            v.m = trial.params["m"]
-
-        final_results = {"test_accs": [], "test_w_f1": []}
-
-        for i in range(10):
-            tt = Type_Trainer(v, v_bert, all_paths, gpu, cpu, gcn_type=v.gcn_type)
-            test_acc, test_w_f1, avg_time = tt()
-            final_results["test_accs"].append(test_acc)
-            final_results["test_w_f1"].append(test_w_f1)
-
-        results_dic["model_type"].append(model_type)
-        results_dic["best_params"].append(best_params)
-        results_dic["test_acc_mean"].append(100 * np.mean(final_results["test_accs"]))
-        results_dic["test_acc_std"].append(np.std(100 * final_results["test_accs"]))
-        results_dic["test_w_f1_mean"].append(100 * np.mean(final_results["test_w_f1"]))
-        results_dic["test_w_f1_std"].append(np.std(100 * final_results["test_w_f1"]))
-        results_dic["gcn_path"].append(all_paths)
-        results_dic["avg_time"].append(avg_time)
-
-        # print(
-        #     "Avg Test acc with Best Parameter setting is: {:.3f} \u00B1 {:.5f} \n".format(
-        #         100 * np.mean(final_results["test_accs"]),
-        #         np.std(final_results["test_accs"]),
-        #     )
-        # )
-
-        # print(
-        #     "Avg Test acc with Best Parameter setting is: {:.3f} \u00B1 {:.5f} \n".format(
-        #         100 * np.mean(final_results["test_accs"]),
-        #         np.std(final_results["test_accs"]),
-        #     )
-        # )
-
-
-results_df = pd.DataFrame.from_dict(results_dic)
-display(results_df)  # type: ignore
-
-# %%
 # EXTRA PLOT SECTION
 # x = [pow(10, 0), pow(10, 1.6), pow(10, 4.2),
 #      pow(10, 3), pow(10, 3.2), pow(10, 2.7), pow(10, 0.7)]

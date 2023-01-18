@@ -303,7 +303,7 @@ class GCN_Trainer:
                 + f"val_acc: {100*val_acc:.3f} "
             )
 
-            # print(print_msg)
+            print(print_msg)
 
     def train_val_loop(self):
         self.model.to(self.gpu)
@@ -342,13 +342,8 @@ class GCN_Trainer:
             avg_time.append(end - start)
 
             if early_stopping.early_stop:
-                # print("Early stopping")
+                print("Early stopping")
                 break
-        # print(
-        #     "GCN Type{} time per epoch: {:.3f}".format(
-        #         self.v.gcn_type, np.mean(avg_time)
-        #     )
-        # )
         avg_time = np.mean(avg_time)
 
         self.model.load_state_dict(th.load(self.model_path))
@@ -460,7 +455,7 @@ class GCN_type2(nn.Module):
 
 
 class Type_Trainer:
-    def __init__(self, v, v_bert, all_paths, gpu, cpu, gcn_type):
+    def __init__(self, v, v_bert, all_paths, gpu, cpu, gcn_type, seed_no=42):
         self.v = v
         self.v_bert = v_bert
         self.all_paths = all_paths
@@ -482,6 +477,7 @@ class Type_Trainer:
         )
 
         self.label = configure_labels(self.y, self.nb_train, self.nb_val, self.nb_test)
+        set_seed(seed_no)
 
     def __call__(self):
         for path in self.all_paths:
@@ -522,23 +518,20 @@ class Type_Trainer:
                     phase="test"
                 )
 
-            # print("Test weighted f1 is: {:.3f}".format(100 * test_w_f1))
-            # print("Test macro f1 is: {:.3f}".format(100 * test_macro))
-            # print("Test micro f1 is: {:.3f}".format(100 * test_micro))
-            # print("Test acc is: {:.3f}\n".format(100 * test_acc))
+            print("Test weighted f1 is: {:.3f}".format(100 * test_w_f1))
+            print("Test acc is: {:.3f}\n".format(100 * test_acc))
 
             # acc and micro f1 same thing for multiclass classification
             return test_acc, test_w_f1, avg_time
 
     def helper1(self):
+        print("Type {} Training".format(self.gcn_type))
         if self.gcn_type == 1 or self.gcn_type == 2:
-            # print("Type {} Training".format(self.gcn_type))
             self.gcn_model = GCN_type1(
                 self.A_s, self.nfeat, self.v, self.gpu, nclass=self.nb_class
             )
             self.criterion = nn.CrossEntropyLoss()
         elif self.gcn_type == 3:
-            # print("Type 3 Training")
             cls_logit = torch.load(
                 "bert-finetune_models/{}_logits.pt".format(self.v.dataset)
             )
@@ -642,19 +635,6 @@ class EarlyStopping:
     def __init__(
         self, patience=7, verbose=False, delta=0, path="checkpoint.pt", trace_func=print
     ):
-        """
-        Args:
-            patience (int): How long to wait after last time validation loss improved.
-                            Default: 7
-            verbose (bool): If True, prints a message for each validation loss improvement.
-                            Default: False
-            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
-                            Default: 0
-            path (str): Path for the checkpoint to be saved to.
-                            Default: 'checkpoint.pt'
-            trace_func (function): trace print function.
-                            Default: print
-        """
         self.patience = patience
         self.verbose = verbose
         self.counter = 0
