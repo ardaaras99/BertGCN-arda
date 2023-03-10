@@ -47,7 +47,7 @@ class GCN_Trainer:
 
     def train_val_loop(self):
         early_stopping = EarlyStopping(
-            patience=self.v.patience, verbose=False, path=self.model_path
+            patience=self.v.patience, verbose=self.v.es_verbose, path=self.v.model_path
         )
         avg_time = []
         for epoch in range(1, self.v.nb_epochs + 1):
@@ -88,10 +88,13 @@ class BertTrainer:
             self.v.optimizer.zero_grad()
             y_true = lbls.type(torch.long)
             y_pred = self.v.model(iis, att_mask, self.gcn_input, idx)
-            loss = F.cross_entropy(y_pred, y_true)
+            if self.v.model_type == "fine_tune":
+                loss = F.cross_entropy(y_pred, y_true)
+            else:
+                loss = self.v.criterion(y_pred, y_true)
             w_f1_t, macro_t, micro_t, acc_t = get_metrics(y_pred, y_true)
 
-            loss.backward(retain_graph=True)
+            loss.backward()
             self.v.optimizer.step()
             self.v.scheduler.step()
 
@@ -104,10 +107,9 @@ class BertTrainer:
         return loss_s, w_f1, macro, micro, acc
 
     def eval_model(self, phase):
+        self.v.model.eval()
         with torch.no_grad():
             loss_s, w_f1, macro, micro, acc = 0, 0, 0, 0, 0
-            self.v.model.eval()
-            self.v.model
             for iis, att_mask, lbls, idx in self.v.loader[phase]:
                 y_true = lbls.type(torch.long)
                 y_pred = self.v.model(
@@ -116,7 +118,10 @@ class BertTrainer:
                     self.gcn_input,
                     idx,
                 )
-                loss = F.cross_entropy(y_pred, y_true)
+                if self.v.model_type == "fine_tune":
+                    loss = F.cross_entropy(y_pred, y_true)
+                else:
+                    loss = self.v.criterion(y_pred, y_true)
                 w_f1_t, macro_t, micro_t, acc_t = get_metrics(y_pred, y_true)
                 norm_c = y_pred.shape[0] / self.v.dataset_sizes[phase][0]
                 loss_s += loss.item() * norm_c
@@ -130,11 +135,10 @@ class BertTrainer:
         early_stopping = EarlyStopping(patience=self.v.patience, verbose=False)
         for epoch in range(1, self.v.nb_epochs + 1):
             train_loss, train_w_f1, _, _, _ = self.train_model()
-            with torch.no_grad():
-                val_loss, val_w_f1, _, _, val_acc = self.eval_model(phase="val")
-                print_results(
-                    self.v, train_w_f1, val_w_f1, val_acc, train_loss, val_loss, epoch
-                )
+            val_loss, val_w_f1, _, _, val_acc = self.eval_model(phase="val")
+            print_results(
+                self.v, train_w_f1, val_w_f1, val_acc, train_loss, val_loss, epoch
+            )
             early_stopping(val_acc, self.v.model)
             if early_stopping.early_stop:
                 print("Early stopping")
@@ -195,24 +199,18 @@ class Type_Trainer:
     def __call__(self):
         A1, A2, A3, self.input_type, self.v.nfeat = get_path(self.v)
         self.A_s = (A1, A2, A3)
-
-        if self.v.gcn_type != 4:
-            self.input_embeddings = get_input_embeddings(
-                self.input_type, self.A_s, self.v
-            )
+        self.input_embeddings = get_input_embeddings(self.input_type, self.A_s, self.v)
 
         self.v.model, self.v.criterion = self.helper1()
         self.v.optimizer, self.v.scheduler = self.helper2()
         self.v.trainer = self.helper3()
 
         _, avg_time = self.v.trainer.train_val_loop()
-
+        # modeli yükleyip teste çağırmak daha mantıklı, son model geliyor olma ihtimali yüksek
+        # self.v.model.load_state_dict(torch.load(self.v.model_path))
         _, test_w_f1, test_acc = self.v.trainer.eval_model(phase="test")
+        self.print_test_results(test_w_f1, test_acc)
 
-        print("Test weighted f1 is: {:.3f}".format(100 * test_w_f1))
-        print("Test acc is: {:.3f}\n".format(100 * test_acc))
-
-        # acc and micro f1 same thing for multiclass classification
         return test_acc, test_w_f1, avg_time
 
     def helper1(self):
@@ -221,57 +219,26 @@ class Type_Trainer:
             model = GCN_type1(self.A_s, self.v)
             criterion = nn.CrossEntropyLoss()
         elif self.v.gcn_type == 3:
-            bert_path = "results/{}/best-bert-model".format(self.v.dataset)
-            ext = [
-                filename
-                for filename in os.listdir(bert_path)
-                if filename.endswith("logits.pt")
-            ][0]
-            cls_logit_path = os.path.join(bert_path, ext)
-            cls_logit = torch.load(cls_logit_path)
-
+            cls_logit = torch.load(get_cls_logit_path(self.v))
             model = GCN_type2(self.A_s, cls_logit, self.v)
             criterion = nn.NLLLoss()
-        else:
-            model = GCN_type3(self.A_s, self.v)
-            criterion = nn.CrossEntropyLoss()
         return model, criterion
 
     def helper2(self):
-        if self.v.gcn_type == 4:
-            optimizer = torch.optim.Adam(
-                [
-                    {
-                        "params": self.v.model.bert_clf.bert_model.parameters(),
-                        "lr": self.v.bert_lr,
-                    },
-                    {
-                        "params": self.v.model.bert_clf.classifier.parameters(),
-                        "lr": self.v.bert_lr,
-                    },
-                    {
-                        "params": self.v.model.gcn.parameters(),
-                        "lr": self.v.gcn_lr,
-                    },  # type: ignore
-                ],
-                lr=1e-3,
-            )  # type: ignore
-            scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
-
-        else:
-            optimizer = torch.optim.Adam(self.v.model.parameters(), lr=self.v.gcn_lr)
-            scheduler = lr_scheduler.MultiStepLR(
-                optimizer, milestones=[30, 80], gamma=0.1
-            )
+        optimizer = torch.optim.Adam(self.v.model.parameters(), lr=self.v.gcn_lr)
+        scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30, 80], gamma=0.1)
         return optimizer, scheduler
 
     def helper3(self):
-        if self.v.gcn_type == 4:
-            self.v = helper4(self.v)
-            trainer = BertTrainer(self.v, model_type="gcn")
-        else:
-            trainer = GCN_Trainer(self.input_embeddings, self.v, model_path="")
+        trainer = GCN_Trainer(self.input_embeddings, self.v, model_path="")
         return trainer
+
+    def print_test_results(self, test_w_f1, test_acc):
+        print("Test weighted f1 is: {:.3f}".format(100 * test_w_f1))
+        print("Test acc is: {:.3f}\n".format(100 * test_acc))
+
+    def save_model(self, path):
+        torch.save(self.v.model.state_dict(), path)
 
 
 # we use it only for bert-finetune step
@@ -288,6 +255,7 @@ def configure_bert_trainer_inputs(v):
     return v
 
 
+# this one specific for type4
 def helper4(v):
     v.input_ids_, v.attention_mask_ = encode_input(
         v.max_length, list(v.docs), v.model.bert_clf.tokenizer
@@ -351,6 +319,97 @@ class EarlyStopping:
         if self.verbose:
             torch.save(model.state_dict(), self.path)
             print(
-                f"Validation acc increased ({100*self.val_acc_min:.3f} --> {100*val_acc:.3f})"
+                f"Validation acc increased ({100*self.val_acc_min:.3f} --> {100*val_acc:.3f})\n Saving Model..."
             )
         self.val_acc_min = val_acc
+
+
+# this also includes type4 implementation, to make things easier, above we omit type 4 implementation to be fast
+# class Type_Trainer:
+#     def __init__(self, v, seed_no=42):
+#         self.v = v
+#         self.v = load_corpus(self.v)
+#         self.v = get_dataset_sizes(self.v, self.v.train_val_split_ratio)
+#         self.v = configure_labels(self.v)
+#         set_seed(seed_no)
+
+#     def __call__(self):
+#         A1, A2, A3, self.input_type, self.v.nfeat = get_path(self.v)
+#         self.A_s = (A1, A2, A3)
+
+#         if self.v.gcn_type != 4:
+#             self.input_embeddings = get_input_embeddings(
+#                 self.input_type, self.A_s, self.v
+#             )
+
+#         self.v.model, self.v.criterion = self.helper1()
+#         self.v.optimizer, self.v.scheduler = self.helper2()
+#         self.v.trainer = self.helper3()
+
+#         _, avg_time = self.v.trainer.train_val_loop()
+
+#         _, test_w_f1, test_acc = self.v.trainer.eval_model(phase="test")
+
+#         print("Test weighted f1 is: {:.3f}".format(100 * test_w_f1))
+#         print("Test acc is: {:.3f}\n".format(100 * test_acc))
+
+#         # acc and micro f1 same thing for multiclass classification
+#         return test_acc, test_w_f1, avg_time
+
+#     def helper1(self):
+#         print("Type {} Training".format(self.v.gcn_type))
+#         if self.v.gcn_type == 1 or self.v.gcn_type == 2:
+#             model = GCN_type1(self.A_s, self.v)
+#             criterion = nn.CrossEntropyLoss()
+#         elif self.v.gcn_type == 3:
+#             bert_path = "results/{}/best-bert-model".format(self.v.dataset)
+#             ext = [
+#                 filename
+#                 for filename in os.listdir(bert_path)
+#                 if filename.endswith("logits.pt")
+#             ][0]
+#             cls_logit_path = os.path.join(bert_path, ext)
+#             cls_logit = torch.load(cls_logit_path)
+
+#             model = GCN_type2(self.A_s, cls_logit, self.v)
+#             criterion = nn.NLLLoss()
+#         else:
+#             model = GCN_type3(self.A_s, self.v)
+#             criterion = nn.CrossEntropyLoss()
+#         return model, criterion
+
+#     def helper2(self):
+#         if self.v.gcn_type == 4:
+#             optimizer = torch.optim.Adam(
+#                 [
+#                     {
+#                         "params": self.v.model.bert_clf.bert_model.parameters(),
+#                         "lr": self.v.bert_lr,
+#                     },
+#                     {
+#                         "params": self.v.model.bert_clf.classifier.parameters(),
+#                         "lr": self.v.bert_lr,
+#                     },
+#                     {
+#                         "params": self.v.model.gcn.parameters(),
+#                         "lr": self.v.gcn_lr,
+#                     },  # type: ignore
+#                 ],
+#                 lr=1e-3,
+#             )  # type: ignore
+#             scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
+
+#         else:
+#             optimizer = torch.optim.Adam(self.v.model.parameters(), lr=self.v.gcn_lr)
+#             scheduler = lr_scheduler.MultiStepLR(
+#                 optimizer, milestones=[30, 80], gamma=0.1
+#             )
+#         return optimizer, scheduler
+
+#     def helper3(self):
+#         if self.v.gcn_type == 4:
+#             self.v = helper4(self.v)
+#             trainer = BertTrainer(self.v, model_type="gcn")
+#         else:
+#             trainer = GCN_Trainer(self.input_embeddings, self.v, model_path="")
+#         return trainer

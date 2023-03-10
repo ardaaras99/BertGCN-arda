@@ -12,23 +12,21 @@ from matplotlib import rcParams, rc
 plt.rcParams["text.usetex"] = True
 plt.rcParams["axes.labelweight"] = "bold"
 matplotlib.rc("text", usetex=True)
-
 matplotlib.rcParams["text.latex.preamble"] = [r"\usepackage{amsmath}"]
+
 x = [
     1 * pow(10, 0),
     1 * pow(10, 0),
     2 * pow(10, 0),
-    2 * pow(10, 2),
     3 * pow(10, 0),
     7 * pow(10, 1),
     5 * pow(10, 2),
 ]
-y = [95.7, 96.5, 98.3, 98.25, 96.96, 97.1, 98.2]
+y = [95.7, 96.5, 98.3, 96.96, 97.1, 98.2]
 s = [
     "$\mathbf{Type \, I}$",
     "$\mathbf{Type \, II}$",
     "$\mathbf{Type \, III}$",
-    "$\mathbf{Type \, IV}$",
     "$\mathbf{HeteGCN}$",  # hetegcn
     "$\mathbf{TextGCN}$",  # textgcn
     "$\mathbf{RoBERTaGCN}$",  # bertgcn
@@ -87,11 +85,10 @@ fontsize_m = 16
 ax.annotate(s[0], (x[0] - 0.3, y[0] - 0.4), fontsize=fontsize_m)
 ax.annotate(s[1], (x[1] - 0.3, y[1] - 0.4), fontsize=fontsize_m)
 ax.annotate(s[2], (x[2] - 0.8, y[2] + 0.3), fontsize=fontsize_m)
-ax.annotate(s[3], (x[3] - 100, y[3] + 0.3), fontsize=fontsize_m)
 
-ax.annotate(s[4], (x[4] - 1.4, y[4] - 0.4), fontsize=16)
-ax.annotate(s[5], (x[5] - 31, y[5] - 0.5), fontsize=16)
-ax.annotate(s[6], (x[6] - 100, y[6] - 0.5), fontsize=12)
+ax.annotate(s[3], (x[3] - 1.4, y[3] - 0.4), fontsize=16)
+ax.annotate(s[4], (x[4] - 31, y[4] - 0.5), fontsize=16)
+ax.annotate(s[5], (x[5] - 100, y[5] - 0.5), fontsize=12)
 
 fontsize = 22
 for tick in ax.xaxis.get_major_ticks():
@@ -107,13 +104,13 @@ font = {
     "size": 22,
 }
 
-plt.ylabel("$\mathbf{Test \, Accuracy \, (\%)}$", fontdict=font)
-plt.xlabel("$\mathbf{Relative \, Training \, Time}$", fontdict=font)
+ax.set_ylabel("$\mathbf{Test \, Accuracy \, (\%)}$", fontdict=font)
+ax.set_xlabel("$\mathbf{Relative \, Training \, Time}$", fontdict=font)
 plt.grid(True)
 
 plt.show()
-fig.savefig("results/relative_train_time.eps", format="eps", bbox_inches="tight")
-fig.savefig("results/relative_train_time.png", format="png", bbox_inches="tight")
+# fig.savefig("results/relative_train_time.eps", format="eps", bbox_inches="tight")
+# fig.savefig("results/relative_train_time.png", format="png", bbox_inches="tight")
 
 
 # annotate altına yap

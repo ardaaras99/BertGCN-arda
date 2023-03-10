@@ -27,13 +27,12 @@ def set_best_v_bert(v_bert, trial):
 
 def set_best_v(v, trial):
 
-    v.n_hidden[0] = trial.params["n_hidden"]
-    v.lr = trial.params["gcn_lr"]
-    v.linear_h = trial.params["linear_h"]
-    v.bn_activator[0] = trial.params["bn_activator_0"]
-    v.bn_activator[1] = trial.params["bn_activator_1"]
-    v.dropout[0] = trial.params["dropout_0"]
-    v.dropout[1] = trial.params["dropout_1"]
+    v.n_hidden = trial.params["n_hidden"]
+    v.gcn_lr = trial.params["gcn_lr"]
+    # objective e linearH eklemeyi unutmuşum default 100 kalmış o yüzden böyle
+    v.linear_h = trial.params.get("linear_h", 120)
+    v.bn_activator = [trial.params["bn_activator_0"], trial.params["bn_activator_1"]]
+    v.dropout = [trial.params["dropout_0"], trial.params["dropout_1"]]
 
     if v.gcn_type == 3:
         v.m = trial.params["m"]
@@ -44,50 +43,6 @@ def set_best_v(v, trial):
         v.m = trial.params["m"]
 
     return v
-
-
-# def get_results_dict(
-#     results_dic, model_type, best_params, all_paths, v, v_bert, gpu, cpu
-# ):
-#     final_results = {"test_accs": [], "test_w_f1": []}
-#     seed_nos = [30, 50, 51, 31, 42, 43, 44, 45, 33, 46]
-#     for i in range(10):
-#         tt = Type_Trainer(
-#             v, v_bert, all_paths, gpu, cpu, gcn_type=v.gcn_type, seed_no=seed_nos[i]
-#         )
-#         test_acc, test_w_f1, avg_time = tt()
-#         final_results["test_accs"].append(test_acc)
-#         final_results["test_w_f1"].append(test_w_f1)
-
-#     gcn_path = get_path_name(all_paths[0])
-#     method = "Type " + str(model_type) + " " + gcn_path
-
-#     test_w_f1_mean = round(100 * np.mean(final_results["test_w_f1"]), 3)
-#     test_w_f1_std = round(np.std(100 * final_results["test_w_f1"]), 4)
-#     test_acc_mean = round(100 * np.mean(final_results["test_accs"]), 3)
-#     test_acc_std = round(np.std(100 * final_results["test_accs"]), 4)
-
-#     results_dic["method"].append(method)
-
-#     results_dic["test_w_f1"].append((test_w_f1_mean, test_w_f1_std))
-#     results_dic["test_acc"].append((test_acc_mean, test_acc_std))
-
-#     results_dic["best_params"].append(best_params)
-
-#     results_dic["avg_time"].append(round(avg_time, 3))
-#     results_dic["final_results"].append(final_results)
-
-#     rv1, rv2 = (
-#         results_dic["final_results"][-1]["test_accs"],
-#         results_dic["final_results"][-1]["test_w_f1"],
-#     )
-
-#     p_acc, mean_acc = t_test_maximizer(rv1)
-#     p_w_f1, mean_w_f1 = t_test_maximizer(rv2)
-
-#     results_dic["test_t_acc"].append((round(100 * mean_acc, 4), round(p_acc, 4)))
-#     results_dic["test_t_w_f1"].append((round(100 * mean_w_f1, 4), round(p_w_f1, 4)))
-#     return results_dic
 
 
 def t_test_maximizer(rv1):
@@ -158,7 +113,7 @@ def configure_jsons(WORK_DIR, cur_dir):
         gpu = torch.device("cuda")
     elif torch.backends.mps.is_built():
         print("mps")
-        gpu = torch.device("mps")
+        gpu = torch.device("cpu")
     else:
         raise Exception("GPU is not avalaible!")
         # gpu = torch.device("cpu")
@@ -287,7 +242,10 @@ def configure_bert_inputs(v):
     loader = {}
     for split in ["train", "val", "test"]:
         datasets[split] = Data.TensorDataset(
-            input_ids[split], attention_mask[split], label[split], indices[split]
+            input_ids[split].to(v.gpu),
+            attention_mask[split].to(v.gpu),
+            label[split].to(v.gpu),
+            indices[split].to(v.gpu),
         )
         loader[split] = Data.DataLoader(
             datasets[split], batch_size=v.batch_size, shuffle=False
@@ -370,18 +328,6 @@ def to_torch_sparse_tensor(M):
     return T
 
 
-def find_best_study(hyperparamstudy_path):
-    best_study = None
-    best_val = 0
-    for study_name in os.listdir(hyperparamstudy_path):
-        cur_study_path = os.path.join(hyperparamstudy_path, study_name)
-        study = joblib.load(cur_study_path)
-        if study.best_trial.value > best_val:
-            best_val = study.best_trial.value
-            best_study = study
-    return best_study
-
-
 def save_gcn_study(v, study):
     joblib.dump(
         study,
@@ -389,3 +335,71 @@ def save_gcn_study(v, study):
             v.dataset, v.gcn_type, v.gcn_path, study.study_name
         ),
     )
+
+
+def get_cls_logit_path(v):
+    bert_path = "/Users/ardaaras/Desktop/projects/BertGCN-arda/results/{}/best-bert-model".format(
+        v.dataset
+    )
+    ext = [
+        filename for filename in os.listdir(bert_path) if filename.endswith("logits.pt")
+    ][0]
+    cls_logit_path = os.path.join(bert_path, ext)
+    return cls_logit_path
+
+
+def get_study_path(v):
+    project_path = "/Users/ardaaras/Desktop/projects/BertGCN-arda"
+    print(project_path)
+    study_path = os.path.join(
+        project_path,
+        "results/{}/hyperparam-studies/type{}/{}".format(
+            v.dataset, v.gcn_type, v.gcn_path
+        ),
+    )
+    return study_path
+
+
+def find_best_study(hyperparamstudy_path):
+    best_study = None
+    best_val = 0
+    for study_name in os.listdir(hyperparamstudy_path):
+        # to ommit dsstore
+        if study_name.endswith(".pkl"):
+            cur_study_path = os.path.join(hyperparamstudy_path, study_name)
+            study = joblib.load(cur_study_path)
+            if study.best_trial.value > best_val:
+                best_val = study.best_trial.value
+                best_study = study
+    return best_study
+
+
+def get_mean_test_results(final_results):
+    w_f1_mean = round(100 * np.mean(final_results["test_w_f1"]), 3)
+    w_f1_std = round(np.std(100 * final_results["test_w_f1"]), 4)
+    acc_mean = round(100 * np.mean(final_results["test_accs"]), 3)
+    acc_std = round(np.std(100 * final_results["test_accs"]), 4)
+    return (w_f1_mean, w_f1_std), (acc_mean, acc_std)
+
+
+def update_results_dict(results_dict, method, w_f1, acc, v, avg_time, final_results):
+    results_dict["method"].append(method)
+    results_dict["test_w_f1"].append(w_f1)
+    results_dict["test_acc"].append(acc)
+    # burada fazladan yazdığımız paramları da ekleyecek
+    results_dict["best_params"].append(v.best_study.best_params)
+    results_dict["avg_time"].append(round(avg_time, 3))
+    results_dict["final_results"].append(final_results)
+    return results_dict
+
+
+def get_empty_results_dict():
+    results_dict = {
+        "method": [],
+        "test_acc": [],
+        "avg_time": [],
+        "test_w_f1": [],
+        "best_params": [],
+        "final_results": [],
+    }
+    return results_dict

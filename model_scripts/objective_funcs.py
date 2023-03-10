@@ -43,14 +43,19 @@ class GCN_Objective:
 
     def __call__(self, trial):
         # min->max->step
-        self.v.n_hidden = [
-            trial.suggest_int(
-                "n_hidden",
-                self.d["n_hidden"][0],
-                self.d["n_hidden"][1],
-                step=self.d["n_hidden"][2],
-            )
-        ]
+        self.v.n_hidden = trial.suggest_int(
+            "n_hidden",
+            self.d["n_hidden"][0],
+            self.d["n_hidden"][1],
+            step=self.d["n_hidden"][2],
+        )
+
+        self.v.linear_h = trial.suggest_int(
+            "linear_h",
+            self.d["linear_h"][0],
+            self.d["linear_h"][1],
+            step=self.d["linear_h"][2],
+        )
 
         self.v.gcn_lr = trial.suggest_float(
             "gcn_lr", self.d["gcn_lr"][0], self.d["gcn_lr"][1], log=True
@@ -61,7 +66,7 @@ class GCN_Objective:
                 "m", self.d["m"][0], self.d["m"][1], step=self.d["m"][2]
             )
 
-        for i in range(len(self.v.n_hidden) + 1):
+        for i in range(2):  # n_hidden otomatik 1 oluyor, 1+1 = 2 diye değiştirdik
             self.v.bn_activator.append(
                 trial.suggest_categorical(
                     "bn_activator_{}".format(i), self.d["bn_activator"]
@@ -89,14 +94,12 @@ class Type4_Objective:
 
     def __call__(self, trial):
         # GCN
-        self.v.n_hidden = [
-            trial.suggest_int(
-                "n_hidden",
-                self.d["n_hidden"][0],
-                self.d["n_hidden"][1],
-                step=self.d["n_hidden"][2],
-            )
-        ]
+        self.v.n_hidden = trial.suggest_int(
+            "n_hidden",
+            self.d["n_hidden"][0],
+            self.d["n_hidden"][1],
+            step=self.d["n_hidden"][2],
+        )
 
         self.v.gcn_lr = trial.suggest_float(
             "gcn_lr", self.d["gcn_lr"][0], self.d["gcn_lr"][1], log=True
