@@ -45,7 +45,7 @@ class GCN_type2(nn.Module):
         gcn_logit = self.gcn(input_embeddings)
         gcn_pred = torch.nn.Softmax(dim=1)(gcn_logit)
         cls_pred = torch.nn.Softmax(dim=1)(self.cls_logit)
-        pred = (gcn_pred) * self.v.m + cls_pred * (1 - self.v.m)
+        pred = (gcn_pred + 1e-9) * self.v.m + cls_pred * (1 - self.v.m)
         pred = torch.log(pred)
         # pred is in form log softmax we will use nll loss
         return pred
@@ -59,7 +59,6 @@ class GCN_type3(nn.Module):
         self.v = v
         # GCN Part
         self.gcn = GCN_type1(A_s=self.A_s, v=self.v)
-        self.gcn.to(self.v.gpu)
         # BERT Part
         self.bert_clf = BertClassifier(self.v.bert_init, self.v.nb_class)
         self.feat_dim = list(self.bert_clf.bert_model.modules())[-2].out_features
@@ -80,7 +79,6 @@ class GCN_type3(nn.Module):
         # burada softmax alıp idx hesaplamak la, idx alıp  softmax yapmak farklı şeyler
         # softmax için geri gpuya koymakta sorun yok
         gcn_pred = nn.Softmax(dim=1)(gcn_logit[idx])
-        # self.gcn.to(self.v.gpu)
         pred = (gcn_pred + 1e-10) * self.v.m + cls_pred * (1 - self.v.m)
         pred = torch.log(pred)
         return pred
@@ -94,10 +92,8 @@ class BertClassifier(torch.nn.Module):
         self.bert_model = AutoModel.from_pretrained(pretrained_model)
         self.feat_dim = list(self.bert_model.modules())[-2].out_features
         self.classifier = torch.nn.Linear(self.feat_dim, nb_class)
-        self.bert_model.to(torch.device("mps"))
-        self.classifier.to(torch.device("mps"))
 
-    def forward(self, input_ids, attention_mask, *args, **kwargs):
+    def forward(self, input_ids, attention_mask):
         cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]
         cls_logit = self.classifier(cls_feats)
         return cls_logit

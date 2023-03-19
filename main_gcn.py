@@ -14,6 +14,7 @@ cur_dir = os.path.basename(__file__)
 v, _, cpu, gpu = configure_jsons(WORK_DIR, cur_dir)
 v.cpu = cpu
 v.gpu = gpu
+v.dataset = "Ohsumed"
 
 
 def run_and_save_gcn_study(param_dict, v, n_trials=1, v_bert=None):
@@ -29,41 +30,44 @@ def run_and_save_gcn_study(param_dict, v, n_trials=1, v_bert=None):
         raise Exception("Invalid GCN type!")
 
 
+# to generate their results
+# v.model_name = "seed-no={}".format(seed_nos[i])
+# v.model_path = "hetegcn-results-generated/{}/{}".format(v.dataset, v.model_name)
+
 #%%
 # 1.) Hyperparameter search
 current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
 
-v.dataset = "R8"
 v.nb_epochs = 1000
-v.patience = 100
-v.print_gap = 50
+v.patience = 25
+v.print_gap = 25
 # bu ikisi save etmediğimiz için önemsiz
 v.es_verbose = False
 v.model_path = ""
 # tüm parametreler her settingde kullanılmıyor bunu hallet
 param_dict = {
-    "gcn_lr": [5e-2, 1e-1],
+    "gcn_lr": [1e-4, 1e-1],
     "n_hidden": [64, 512, 32],  # min,max,step
-    "linear_h": [100, 300, 50],  # min,max,step
+    "linear_h": [64, 512, 32],  # min,max,step
     "m": [0.35, 0.85, 0.05],  # min,max,step
     "bn_activator": ["True"],
-    "dropout": [0, 1, 0.05],
+    "dropout": [0.2, 0.95, 0.05],
 }
 
-types = [2, 1]
+types = [3]
 paths = ["FF-NF", "FN-NF", "NF-NN", "NN-NN"]
-
+paths = ["FF-NF"]
 for gcn_path in paths:
     for gcn_type in types:
         v.gcn_type, v.gcn_path, v.current_time = gcn_type, gcn_path, current_time
-        run_and_save_gcn_study(param_dict, v, n_trials=50)
+        run_and_save_gcn_study(param_dict, v, n_trials=30)
 
 
 #%%
 # 2.) Find best study for all path-type combination and re-train with bestparams
 def get_results_dict(results_dict, v):
     final_results = {"test_accs": [], "test_w_f1": []}
-    seed_nos = [30, 50, 51, 31, 42, 43, 44, 45, 33, 46]
+    seed_nos = [42, 50, 51, 31, 30, 43, 44, 45, 33, 46]
     for i in range(len(seed_nos)):
         v.model_name = "{}_seed-no={}".format(v.best_study.study_name, seed_nos[i])
         v.model_path = "results/{}/best-gcn-model/type{}/{}/{}".format(
@@ -80,23 +84,19 @@ def get_results_dict(results_dict, v):
     results_dict = update_results_dict(
         results_dict, method, w_f1, acc, v, avg_time, final_results
     )
-    # rv1, rv2 = (
-    #     results_dict["final_results"][-1]["test_accs"],
-    #     results_dict["final_results"][-1]["test_w_f1"],
-    # )
-    # p_acc, mean_acc = t_test_maximizer(rv1)
-    # p_w_f1, mean_w_f1 = t_test_maximizer(rv2)
-    # results_dict["test_t_acc"].append((round(100 * mean_acc, 4), round(p_acc, 4)))
-    # results_dict["test_t_w_f1"].append((round(100 * mean_w_f1, 4), round(p_w_f1, 4)))
+
     return results_dict
 
 
 v.nb_epochs = 1000
-v.patience = 500
-v.print_gap = 100
+v.patience = 50
+v.print_gap = 25
 # yukarı şuana kadar ki best
-types = [2, 1]
+types = [3]
 paths = ["FF-NF", "FN-NF", "NF-NN", "NN-NN"]
+paths = ["FF-NF"]
+paths = ["FN-NF", "NF-NN", "NN-NN"]
+
 
 results_dict = get_empty_results_dict()
 for gcn_path in paths:
@@ -109,11 +109,14 @@ for gcn_path in paths:
 results_df = pd.DataFrame.from_dict(results_dict)
 display(results_df)  # type: ignore
 #%%
+# BURADAKI NAMING HALA MANUAL
+# zamana göre değişen bir şey koydum şimdilik en azından
+current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
 project_path = "/Users/ardaaras/Desktop/projects/BertGCN-arda"
 print(project_path)
 results_path = os.path.join(
     project_path,
-    "results/{}/test-results-table/{}.csv".format(v.dataset, "daha-bulamadim"),
+    "results/{}/test-results-table/{}.csv".format(v.dataset, current_time),
 )
 results_df.to_csv(results_path)
 # %%
@@ -132,3 +135,13 @@ results_df.to_csv(results_path)
 
 # for type4, we can only pass the following graphs (since document input)
 # paths = ["FN-NF", "NN-NN"]
+
+# get results dict functionı içindeydi sonradan ihtiyaç olur belki
+# rv1, rv2 = (
+#     results_dict["final_results"][-1]["test_accs"],
+#     results_dict["final_results"][-1]["test_w_f1"],
+# )
+# p_acc, mean_acc = t_test_maximizer(rv1)
+# p_w_f1, mean_w_f1 = t_test_maximizer(rv2)
+# results_dict["test_t_acc"].append((round(100 * mean_acc, 4), round(p_acc, 4)))
+# results_dict["test_t_w_f1"].append((round(100 * mean_w_f1, 4), round(p_w_f1, 4)))

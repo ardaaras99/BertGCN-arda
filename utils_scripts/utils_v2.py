@@ -94,7 +94,7 @@ def set_seed(seed: int = 42) -> None:
     torch.backends.cudnn.benchmark = False  # type: ignore
     # Set a fixed value for the hash seed
     os.environ["PYTHONHASHSEED"] = str(seed)
-    print(f"Random seed set as {seed}")
+    print(f"\nRandom seed set as {seed}")
 
 
 def configure_jsons(WORK_DIR, cur_dir):
@@ -113,7 +113,7 @@ def configure_jsons(WORK_DIR, cur_dir):
         gpu = torch.device("cuda")
     elif torch.backends.mps.is_built():
         print("mps")
-        gpu = torch.device("cpu")
+        gpu = torch.device("mps")
     else:
         raise Exception("GPU is not avalaible!")
         # gpu = torch.device("cpu")
@@ -242,10 +242,7 @@ def configure_bert_inputs(v):
     loader = {}
     for split in ["train", "val", "test"]:
         datasets[split] = Data.TensorDataset(
-            input_ids[split].to(v.gpu),
-            attention_mask[split].to(v.gpu),
-            label[split].to(v.gpu),
-            indices[split].to(v.gpu),
+            input_ids[split], attention_mask[split], label[split], indices[split]
         )
         loader[split] = Data.DataLoader(
             datasets[split], batch_size=v.batch_size, shuffle=False

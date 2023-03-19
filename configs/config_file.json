@@ -1,9 +1,10 @@
 {
-    "dataset": "R8",
+    "dataset": "R52",
     "normalize_input_embeddings": "False",
     "normalize_graphs": "False",
     "pre_process_text": "False",
     "train_val_split_ratio": 0.2,
     "current_epoch": 0,
-    "bert_init": "roberta-base"
+    "bert_init": "roberta-base",
+    "bert_lr": 1e-5
 }

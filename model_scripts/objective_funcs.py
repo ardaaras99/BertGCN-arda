@@ -19,20 +19,10 @@ class BertObjective:
         )
         self.v.bert_init = trial.suggest_categorical("bert_init", self.d["bert_init"])
         self.v.patience = trial.suggest_categorical("patience", self.d["patience"])
-        bert_fine_tuner = BertTrainer(configure_bert_trainer_inputs(self.v_bert))
+        bert_trainer = BertTrainer(configure_bert_trainer_inputs(self.v))
+        bert_trainer.train_val_loop()
 
-        bert_fine_tuner.train_val_loop()
-        with torch.no_grad():
-            _, test_w_f1, test_macro, test_micro, test_acc = bert_fine_tuner.loop(
-                phase="test"
-            )
-
-        print("Test weighted f1 is: {:.3f}".format(100 * test_w_f1))
-        print("Test macro f1 is: {:.3f}".format(100 * test_macro))
-        print("Test micro f1 is: {:.3f}".format(100 * test_micro))
-        print("Test acc is: {:.3f}".format(100 * test_acc))
-
-        return test_micro
+        return round(100 * bert_trainer.metrics["test_acc"], 4)
 
 
 class GCN_Objective:
@@ -82,8 +72,8 @@ class GCN_Objective:
             )
 
         tt = Type_Trainer(self.v)
-        test_micro, _, _ = tt()
-        return test_micro
+        test_acc, _, _ = tt()
+        return round(100 * test_acc, 4)
 
 
 class Type4_Objective:
