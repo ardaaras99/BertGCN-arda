@@ -1,43 +1,15 @@
-"""GCN using DGL nn package
-References:
-- Semi-Supervised Classification with Graph Convolutional Networks
-- Paper: https://arxiv.org/abs/1609.02907
-- Code: https://github.com/tkipf/gcn
-"""
-
 import torch as th
-from utils_v2 import *
 import torch.nn as nn
-from layers import GraphConvolution
-import torch.nn.functional as F
 import time
-
 from random import seed
 import torch as th
-from transformers.models.auto.modeling_auto import AutoModel
-from transformers.models.auto.tokenization_auto import AutoTokenizer
-from gcn_models import *
-
 from torch.optim import lr_scheduler
 import torch.nn.functional as F
-from layers import *
+
+from utils_scripts.utils_v2 import *
+from model_scripts.gcn_types import *
 
 set_seed()
-
-
-class BertClassifier(th.nn.Module):
-    def __init__(self, pretrained_model="roberta_base", nb_class=20):
-        super(BertClassifier, self).__init__()
-        self.nb_class = nb_class
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model)
-        self.bert_model = AutoModel.from_pretrained(pretrained_model)
-        self.feat_dim = list(self.bert_model.modules())[-2].out_features
-        self.classifier = th.nn.Linear(self.feat_dim, nb_class)
-
-    def forward(self, input_ids, attention_mask, *args, **kwargs):
-        cls_feats = self.bert_model(input_ids, attention_mask)[0][:, 0]
-        cls_logit = self.classifier(cls_feats)
-        return cls_logit
 
 
 class BertTrainer:
@@ -351,109 +323,6 @@ class GCN_Trainer:
         return self.model, avg_time
 
 
-class GCN_type3(nn.Module):
-    def __init__(self, A_s, nfeat, v, v_bert, gpu, n_class):
-        super(GCN_type3, self).__init__()
-        self.A_s = A_s
-        self.v = v
-        self.nfeat = nfeat
-        self.gpu = gpu
-        self.n_class = n_class
-        # GCN Part
-        self.gcn = GCN_type1(
-            A_s=self.A_s, nfeat=self.nfeat, v=self.v, gpu=self.gpu, nclass=self.n_class
-        )
-        # BERT Part
-        self.v_bert = v_bert
-        self.bert = BertClassifier(self.v_bert.bert_init, self.n_class)
-        self.feat_dim = list(self.bert.bert_model.modules())[-2].out_features
-
-    def forward(self, input_ids, attention_mask, gcn_input, idx):
-        # idx -> current batch ids to update graph
-        if self.training:
-            cls_feats = self.bert.bert_model(input_ids, attention_mask)[0][:, 0]
-            # during training we update GCN inputs after BERT iteration
-            gcn_input[idx] = cls_feats
-        else:
-            cls_feats = gcn_input[idx]
-
-        cls_logit = self.bert.classifier(cls_feats)
-        cls_pred = nn.Softmax(dim=1)(cls_logit)
-
-        gcn_logit = self.gcn(gcn_input)
-        # burada softmax alıp idx hesaplamak la, idx alıp  softmax yapmak farklı şeyler
-        gcn_pred = nn.Softmax(dim=1)(gcn_logit[idx])
-
-        pred = (gcn_pred + 1e-10) * self.v.m + cls_pred * (1 - self.v.m)
-        pred = th.log(pred)
-        return pred
-
-
-class GCN_type1(nn.Module):
-    def __init__(self, A_s, nfeat, v, gpu, nclass):
-        super(GCN_type1, self).__init__()
-        self.A_s = A_s
-        self.v = v
-        self.gcn_layers = nn.ModuleList()
-        self.gpu = gpu
-        self.current_dim = nfeat
-        # hidden dimde yer alan eleman kadar GCN layeri ekle
-        for hdim in self.v.n_hidden:
-            self.gcn_layers.append(GraphConvolution(self.current_dim, hdim))
-            self.current_dim = hdim
-        # en son classification için gcn layeri ekle
-        # belki bundan önce bir linear layer ekleyebilirsin?
-        self.gcn_layers.append(GraphConvolution(self.current_dim, self.v.linear_h))
-        self.linear = th.nn.Linear(self.v.linear_h, nclass)
-
-    def forward(self, x):
-        for i, layer in enumerate(self.gcn_layers):
-            x = layer(x, self.A_s[i])
-            # removing last BN before softmax
-            if self.v.bn_activator[i] == "True":
-                x = nn.BatchNorm1d(x.shape[1], affine=True).to(self.gpu)(x)
-            x = F.leaky_relu(x)
-            x = F.dropout(x, self.v.dropout[i], training=self.training)
-
-        x = self.linear(x)
-        if self.v.bn_activator[-1] == "True":
-            x = nn.BatchNorm1d(x.shape[1], affine=True).to(self.gpu)(x)
-
-        # x = F.leaky_relu(x)
-        # x = F.dropout(x, self.v.dropout[-1], training=self.training)
-        # no log softmax here, it will be done in combined model
-        return x
-
-
-class GCN_type2(nn.Module):
-    def __init__(self, A_s, nfeat, v, gpu, cls_logit, n_class):
-        super(GCN_type2, self).__init__()
-        self.A_s = A_s
-        self.v = v
-        self.nfeat = nfeat
-        self.gpu = gpu
-        self.cls_logit = cls_logit
-        self.n_class = n_class
-        self.gcn = GCN_type1(
-            A_s=self.A_s, nfeat=self.nfeat, v=self.v, gpu=self.gpu, nclass=self.n_class
-        )
-
-        # tek başına type1 trainletip ordan başlatalım dedik ama çok da güzel olmadı
-        # self.gcn.load_state_dict(th.load('gcn_models/{}_type1_weights_{}.pt'.format(
-        #     v.dataset, v.gcn_path)))
-
-    def forward(self, input_embeddings):
-        self.gcn.to(self.gpu)
-        gcn_logit = self.gcn(input_embeddings)
-        gcn_pred = th.nn.Softmax(dim=1)(gcn_logit)
-
-        cls_pred = th.nn.Softmax(dim=1)(self.cls_logit)
-        pred = (gcn_pred) * self.v.m + cls_pred * (1 - self.v.m)
-        pred = th.log(pred)
-        # pred is in form log softmax we will use nll loss
-        return pred
-
-
 class Type_Trainer:
     def __init__(self, v, v_bert, all_paths, gpu, cpu, gcn_type, seed_no=42):
         self.v = v
@@ -576,7 +445,7 @@ class Type_Trainer:
         else:
             self.optimizer = th.optim.Adam(self.gcn_model.parameters(), lr=self.v.lr)
             self.scheduler = lr_scheduler.MultiStepLR(
-                self.optimizer, milestones=[30], gamma=0.1
+                self.optimizer, milestones=[30, 80], gamma=0.1
             )
 
     def helper3(self):
@@ -669,3 +538,37 @@ class EarlyStopping:
             )
         th.save(model.state_dict(), self.path)
         self.val_acc_min = val_acc
+
+
+def configure_bert_trainer_inputs(v_bert):
+    model = BertClassifier(pretrained_model=v_bert.bert_init, nb_class=v_bert.nb_class)
+    optimizer = th.optim.Adam(model.parameters(), lr=v_bert.lr)
+    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30], gamma=0.1)
+    criterion = nn.CrossEntropyLoss()
+    input_ids_, attention_mask_ = encode_input(
+        v_bert.max_length, list(v_bert.docs), model.tokenizer
+    )
+
+    loader, dataset_sizes, label = configure_bert_inputs(
+        input_ids_,
+        attention_mask_,
+        v_bert.y,
+        v_bert.nb_train,
+        v_bert.nb_val,
+        v_bert.nb_test,
+        v_bert,
+    )
+
+    return (
+        v_bert.v,
+        v_bert,
+        v_bert.gpu,
+        v_bert.cpu,
+        model,
+        optimizer,
+        scheduler,
+        criterion,
+        loader,
+        dataset_sizes,
+        label,
+    )

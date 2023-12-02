@@ -10,6 +10,18 @@ import torch as th
 from sklearn.metrics import accuracy_score as acc_func
 import random
 import os
+import joblib
+
+
+def get_path_name(tmp):
+    if tmp == "FN-NF":
+        return "(TX-X)"
+    if tmp == "FF-NF":
+        return "(F-X)"
+    if tmp == "NN-NN":
+        return "(N-N)"
+    if tmp == "NF-NN":
+        return "(X-N)"
 
 
 def set_seed(seed: int = 42) -> None:
@@ -41,7 +53,7 @@ def configure_jsons(WORK_DIR, cur_dir):
         gpu = torch.device("cuda")
     elif torch.backends.mps.is_built():
         print("mps")
-        gpu = torch.device("cpu")
+        gpu = torch.device("mps")
     else:
         raise Exception("GPU is not avalaible!")
         # gpu = torch.device("cpu")
@@ -98,56 +110,6 @@ def get_metrics(output, labels, ID=""):
     micro = f1_score(y_true, y_pred, average="micro")
     acc = acc_func(y_true, y_pred)
     return w_f1, macro, micro, acc
-
-
-# def sparse_to_tuple(sparse_mx):
-#     """Convert sparse matrix to tuple representation."""
-#     def to_tuple(mx):
-#         if not sp.isspmatrix_coo(mx):
-#             mx = mx.tocoo()
-#         coords = np.vstack((mx.row, mx.col)).transpose()
-#         values = mx.data
-#         shape = mx.shape
-#         return coords, values, shape
-
-#     if isinstance(sparse_mx, list):
-#         for i in range(len(sparse_mx)):
-#             sparse_mx[i] = to_tuple(sparse_mx[i])
-#     else:
-#         sparse_mx = to_tuple(sparse_mx)
-
-#     return sparse_mx
-
-
-# def preprocess_features(features):
-#     """Row-normalize feature matrix and convert to tuple representation"""
-#     rowsum = np.array(features.sum(1))
-#     r_inv = np.power(rowsum, -1).flatten()
-#     r_inv[np.isinf(r_inv)] = 0.
-#     r_mat_inv = sp.diags(r_inv)
-#     features = r_mat_inv.dot(features)
-#     return sparse_to_tuple(features)
-
-
-# def normalize_adj(adj):
-#     """Symmetrically normalize adjacency matrix."""
-#     adj = sp.coo_matrix(adj)
-#     rowsum = np.array(adj.sum(1))
-#     d_inv_sqrt = np.power(rowsum, -0.5).flatten()
-#     d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
-#     d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
-#     return adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).tocoo()
-
-
-# def preprocess_adj(adj):
-#     """Preprocessing of adjacency matrix for simple GCN model and conversion to tuple representation."""
-#     adj_normalized = normalize_adj(adj + sp.eye(adj.shape[0]))
-#     return sparse_to_tuple(adj_normalized)
-
-
-"""
-    new utils functions added by Arda Can Aras
-"""
 
 
 def encode_input(max_length, text, tokenizer):
@@ -295,3 +257,15 @@ def to_torch_sparse_tensor(M):
     shape = th.Size(M.shape)
     T = th.sparse.FloatTensor(indices, values, shape)  # type: ignore
     return T
+
+
+def find_best_study(hyperparamstudy_path):
+    best_study = None
+    best_val = 0
+    for study_name in os.listdir(hyperparamstudy_path):
+        cur_study_path = os.path.join(hyperparamstudy_path, study_name)
+        study = joblib.load(cur_study_path)
+        if study.best_trial.value > best_val:
+            best_val = study.best_trial.value
+            best_study = study
+    return best_study
